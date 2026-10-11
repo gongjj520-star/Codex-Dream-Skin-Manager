@@ -40,6 +40,21 @@ cp "$ROOT/../windows/presets/catalog.json" "$APP/Contents/Resources/manager-cata
 cp "$ROOT/scripts/"*.mjs "$APP/Contents/Resources/engine/scripts/"
 cp "$ROOT/scripts/"*.sh "$APP/Contents/Resources/engine/scripts/"
 chmod 755 "$APP/Contents/Resources/engine/scripts/"*.sh
+ENGINE="$APP/Contents/Resources/engine"
+for preset_spec in \
+  preset-tyndall-rays:background.jpg \
+  preset-hokuriku-road:background.jpg \
+  preset-cold-elegance:background.mp4 \
+  preset-summer-forest:background.png; do
+  bundled_preset="${preset_spec%:*}"
+  bundled_media="${preset_spec#*:}"
+  for preset_file in theme.json "$bundled_media"; do
+    [ -s "$ROOT/presets/$bundled_preset/$preset_file" ] \
+      || { printf 'Bundled wallpaper file missing: %s/%s\n' "$bundled_preset" "$preset_file" >&2; exit 1; }
+  done
+  /bin/mkdir -p "$ENGINE/presets/$bundled_preset"
+  /usr/bin/rsync -a "$ROOT/presets/$bundled_preset/" "$ENGINE/presets/$bundled_preset/"
+done
 "$APP/Contents/Resources/engine/runtime/node/bin/node" "$ROOT/scripts/prepare-gui-presets.mjs" "$ROOT/../windows/presets/catalog.json" "$APP/Contents/Resources/engine/presets"
 cp "$TEMP_BUILD/CodexDreamSkinMenuBar" "$APP/Contents/MacOS/CodexDreamSkinMenuBar"
 sed "s/__VERSION__/$VERSION/g" "$ROOT/menubar-app/Resources/Info.plist.template" > "$APP/Contents/Info.plist"

@@ -1,12 +1,25 @@
 # 预设主题 · Preset packs
 
-这个目录放 **Codex Dream Skin 的内置预设主题**。构建 GUI 发行包时还会从 Windows 目录生成 33 款静态主题包（不包含公开分发受限的桥本有菜参考图），连同这里的哥特默认主题和两款动态主题共 36 款。安装时 `install-dream-skin-macos.sh` 会把每个 `preset-*/` 幂等地播种到用户主题库 `~/Library/Application Support/CodexDreamSkinStudio/themes/`；GUI 更新后启动时也会补齐缺少的内置主题，且尊重用户删除记录。
+这个目录放 **Codex Dream Skin 的内置预设主题**。构建 GUI 发行包时还会从 Windows 目录生成 33 款静态主题包（不包含公开分发受限的桥本有菜参考图），连同这里的哥特默认主题、两款原有动态主题和四款新增壁纸共 40 款。安装时 `install-dream-skin-macos.sh` 会把每个 `preset-*/` 幂等地播种到用户主题库 `~/Library/Application Support/CodexDreamSkinStudio/themes/`；GUI 更新后启动时也会补齐缺少的内置主题，且尊重用户删除记录。
 
 > This folder holds the bundled preset themes. Install seeds each `preset-*/` into the user theme library, so a fresh install ships with ready-to-use skins.
 
-## 内置动态预设
+## 新增壁纸预设
 
-Mac 发行包包含与 Windows 版相同的两款 MP4 动态皮肤：
+以下四款来自维护者提供的工作区根目录 `内置壁纸/`，与 Windows 版保持相同的原始媒体和主题参数：
+
+| 目录 | 名称 | 原始素材 |
+| --- | --- | --- |
+| `preset-tyndall-rays/` | 丁达尔光-光影-光线 | `丁达尔光-光影-光线.jpg` |
+| `preset-hokuriku-road/` | 公路-北陆-好看 | `公路-北陆-好看.jpg` |
+| `preset-cold-elegance/` | 冷艳 | `冷艳.mp4` |
+| `preset-summer-forest/` | 夏天森林-大树仰拍 | `夏天森林-大树仰拍.png` |
+
+素材原文件直接打包，没有压缩或转码；主题跟随 Codex 浅暗设置，沿用维护者本地皮肤的构图和透明度参数。GUI 构建脚本直接复制这四套目录，独立于原有 36 项 Windows catalog 的生成步骤。素材来源及校验值见 [Windows 预设说明](../../windows/presets/README.md)，这些素材不纳入 MIT 软件许可。
+
+## 原有动态预设
+
+Mac 发行包保留与 Windows 版相同的两款原有 MP4 动态皮肤，新增的「冷艳」见上节：
 
 - `preset-ink-feather-glow/`：墨羽流光。
 - `preset-silver-glass-dream/`：银璃幻梦。

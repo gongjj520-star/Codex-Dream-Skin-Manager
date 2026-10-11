@@ -161,6 +161,20 @@ for animated_preset in preset-ink-feather-glow preset-silver-glass-dream; do
   /bin/mkdir -p "$ENGINE/presets/$animated_preset"
   /usr/bin/rsync -a "$ROOT/presets/$animated_preset/" "$ENGINE/presets/$animated_preset/"
 done
+for preset_spec in \
+  preset-tyndall-rays:background.jpg \
+  preset-hokuriku-road:background.jpg \
+  preset-cold-elegance:background.mp4 \
+  preset-summer-forest:background.png; do
+  bundled_preset="${preset_spec%:*}"
+  bundled_media="${preset_spec#*:}"
+  for preset_file in theme.json "$bundled_media"; do
+    [ -s "$ROOT/presets/$bundled_preset/$preset_file" ] \
+      || { printf 'Bundled wallpaper file missing: %s/%s\n' "$bundled_preset" "$preset_file" >&2; exit 1; }
+  done
+  /bin/mkdir -p "$ENGINE/presets/$bundled_preset"
+  /usr/bin/rsync -a "$ROOT/presets/$bundled_preset/" "$ENGINE/presets/$bundled_preset/"
+done
 /bin/cp "$ROOT/../windows/presets/catalog.json" "$RESOURCES/manager-catalog.json"
 /bin/cp "$ROOT/VERSION" "$ENGINE/VERSION"
 /bin/cp "$ROOT/LICENSE" "$RESOURCES/LICENSE.txt"

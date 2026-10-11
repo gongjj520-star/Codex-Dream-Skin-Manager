@@ -1,0 +1,28 @@
+{
+    "schemaVersion":  1,
+    "id":  "preset-tyndall-rays",
+    "name":  "丁达尔光-光影-光线",
+    "image":  "background.jpg",
+    "category":  "nature",
+    "tags":  [
+                 "风景",
+                 "光影",
+                 "光线"
+             ],
+    "appearance":  "auto",
+    "art":  {
+                "focusX":  0.5,
+                "focusY":  0.5,
+                "safeArea":  "auto",
+                "taskMode":  "auto",
+                "bubbleOpacity":  0,
+                "surfaceOpacity":  0.8,
+                "positionX":  0,
+                "positionY":  0,
+                "zoom":  1,
+                "positionMode":  "locked"
+            },
+    "palette":  {
+
+                }
+}
