@@ -1043,6 +1043,7 @@ export async function runRendererRuntimeTest(assetRoot) {
         colorMode: "explicit",
         explicitColorKeys: ["accent"],
         colors: { accent },
+        art: { surfaceOpacity: 0.8 },
       }), contrast.context);
       assert.equal(contrast.rootStyle.values.get("--ds-green"), accent);
       assert.equal(
@@ -1066,6 +1067,7 @@ export async function runRendererRuntimeTest(assetRoot) {
         panel,
         accent: "rgba(0, 0, 0, 0)",
       },
+      art: { surfaceOpacity: 0.8 },
     }), transparentSurfaces.context);
     assert.equal(
       transparentSurfaces.rootStyle.values.get("--ds-on-accent"),
