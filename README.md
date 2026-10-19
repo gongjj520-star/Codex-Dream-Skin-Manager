@@ -4,18 +4,18 @@
 
 ## 下载与安装
 
-当前版本：`2.0.8`。前往 [GitHub Releases](https://github.com/rxkjovo/Codex-Dream-Skin-Manager/releases) 下载对应安装包：
+当前版本：`2.0.9`。前往 [GitHub Releases](https://github.com/rxkjovo/Codex-Dream-Skin-Manager/releases) 下载对应安装包：
 
 | 平台 | 系统要求 | 安装包 |
 | --- | --- | --- |
-| Windows 安装版 | Windows 10/11 x64 | `CodexDreamSkinManager-v2.0.8-windows-x64-setup.exe` |
-| Windows 便携版 | Windows 10/11 x64 | `CodexDreamSkinManager-v2.0.8-windows-x64-portable.zip` |
-| macOS Intel | macOS 13+ | `CodexDreamSkinManager-v2.0.8-macos-x64.dmg` |
-| macOS Apple Silicon | macOS 13+ | `CodexDreamSkinManager-v2.0.8-macos-arm64.dmg` |
+| Windows 安装版 | Windows 10/11 x64 | `CodexDreamSkinManager-v2.0.9-windows-x64-setup.exe` |
+| Windows 便携版 | Windows 10/11 x64 | `CodexDreamSkinManager-v2.0.9-windows-x64-portable.zip` |
+| macOS Intel | macOS 13+ | `CodexDreamSkinManager-v2.0.9-macos-x64.dmg` |
+| macOS Apple Silicon | macOS 13+ | `CodexDreamSkinManager-v2.0.9-macos-arm64.dmg` |
 
 请先安装 Codex 桌面客户端。发布包已内置 Node.js，无需单独配置运行环境；Windows 便携版须完整解压，不能只复制 EXE。`SHA256SUMS.txt` 提供下载包校验值。
 
-`2.0.8` 新增「丁达尔光-光影-光线」「公路-北陆-好看」「冷艳」（MP4）和「夏天森林-大树仰拍」四款内置皮肤，Windows 与 macOS 均保留原始媒体，沿用本地取景与透明度参数，并跟随 Codex 当前浅深色外观。
+`2.0.9` 修复输入框渐变层的结构变化。内置与新建皮肤的面板不透明度默认为 0%，仍可手动调整；已保存皮肤保留原有不透明度设置。
 
 ## 主要功能
 

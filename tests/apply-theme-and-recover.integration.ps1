@@ -49,7 +49,7 @@ function Invoke-Recovery([switch]$UseImage, [switch]$StartOnly, [switch]$Restart
       $arguments += @(
         '-ImagePath', $imagePath, '-Name', $imageName, '-Appearance', 'dark', '-TagsJson', $tagsJson,
         '-PositionX', '0.4', '-PositionY', '-0.3', '-Zoom', '1.5', '-PositionMode', 'free',
-        '-FramingEnabled', 'true'
+        '-FramingEnabled', 'true', '-SurfaceOpacity', '0.8'
       )
     } else {
       $arguments += @('-ThemeDirectory', $themeDirectory)

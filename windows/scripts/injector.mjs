@@ -55,7 +55,7 @@ const stableTestidLiteral = (testid) => {
   }
   return JSON.stringify(`[data-testid="${testid}"]`);
 };
-const SKIN_VERSION = "2.0.8";
+const SKIN_VERSION = "2.0.9";
 // .github/workflows/ci.yml's version-consistency check greps this file for a
 // literal `const SKIN_VERSION = "...";` line, so the export stays a separate
 // statement rather than an inline `export const`.
@@ -872,7 +872,7 @@ export async function loadTheme(themeDir) {
       focusX: normalizedUnit(art.focusX, "art.focusX"),
       focusY: normalizedUnit(art.focusY, "art.focusY"),
       bubbleOpacity: normalizedRange(art.bubbleOpacity, "art.bubbleOpacity", 0, 1, 0),
-      surfaceOpacity: normalizedRange(art.surfaceOpacity, "art.surfaceOpacity", 0, 1, 0.8),
+      surfaceOpacity: normalizedRange(art.surfaceOpacity, "art.surfaceOpacity", 0, 1, 0),
       safeArea: normalizedChoice(art.safeArea, "art.safeArea", THEME_CHOICES.safeArea, "auto"),
       taskMode: normalizedChoice(art.taskMode, "art.taskMode", THEME_CHOICES.taskMode, "auto"),
       ...(framingEnabled ? {

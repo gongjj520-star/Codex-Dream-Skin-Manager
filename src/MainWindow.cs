@@ -707,9 +707,9 @@ namespace CodexDreamSkinManager
             bubbleOpacitySlider.ValueChanged += FramingChanged;
             fields.Children.Add(bubbleOpacitySlider);
 
-            surfaceOpacityValue = new TextBlock { Text = "80%", Foreground = MutedBrush, HorizontalAlignment = HorizontalAlignment.Right };
+            surfaceOpacityValue = new TextBlock { Text = "0%", Foreground = MutedBrush, HorizontalAlignment = HorizontalAlignment.Right };
             fields.Children.Add(SliderLabel("面板不透明度（输入框、工具面板等）", surfaceOpacityValue));
-            surfaceOpacitySlider = CreateSlider(0, 100, 80, 1, "SurfaceOpacitySlider");
+            surfaceOpacitySlider = CreateSlider(0, 100, 0, 1, "SurfaceOpacitySlider");
             surfaceOpacitySlider.ToolTip = "用于输入框、右侧浮层和设置等独立面板；不影响侧栏、顶部菜单栏、聊天区整体底色、文字和消息气泡。0% 完全透明，100% 不透明。保存主题后生效。";
             surfaceOpacitySlider.ValueChanged += FramingChanged;
             fields.Children.Add(surfaceOpacitySlider);
@@ -816,9 +816,9 @@ namespace CodexDreamSkinManager
             savedBubbleOpacitySlider.ValueChanged += SavedThemeFramingChanged;
             fields.Children.Add(savedBubbleOpacitySlider);
 
-            savedSurfaceOpacityValue = new TextBlock { Text = "80%", Foreground = MutedBrush, HorizontalAlignment = HorizontalAlignment.Right };
+            savedSurfaceOpacityValue = new TextBlock { Text = "0%", Foreground = MutedBrush, HorizontalAlignment = HorizontalAlignment.Right };
             fields.Children.Add(SliderLabel("面板不透明度（输入框、工具面板等）", savedSurfaceOpacityValue));
-            savedSurfaceOpacitySlider = CreateSlider(0, 100, 80, 1, "SavedSurfaceOpacitySlider");
+            savedSurfaceOpacitySlider = CreateSlider(0, 100, 0, 1, "SavedSurfaceOpacitySlider");
             savedSurfaceOpacitySlider.ToolTip = "用于输入框、右侧浮层和设置等独立面板；不影响侧栏、顶部菜单栏、聊天区整体底色、文字和消息气泡。0% 完全透明，100% 不透明。保存主题后生效。";
             savedSurfaceOpacitySlider.ValueChanged += SavedThemeFramingChanged;
             fields.Children.Add(savedSurfaceOpacitySlider);
@@ -1612,7 +1612,7 @@ namespace CodexDreamSkinManager
             options.SafeArea = MapSafeArea(safeAreaCombo.SelectedIndex);
             options.TaskMode = MapTaskMode(taskModeCombo.SelectedIndex);
             options.BubbleOpacity = bubbleOpacitySlider == null ? 0 : bubbleOpacitySlider.Value / 100.0;
-            options.SurfaceOpacity = surfaceOpacitySlider == null ? 0.8 : surfaceOpacitySlider.Value / 100.0;
+            options.SurfaceOpacity = surfaceOpacitySlider == null ? 0 : surfaceOpacitySlider.Value / 100.0;
             options.Accent = accentBox.Text.Trim();
             return options;
         }

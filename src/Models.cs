@@ -63,7 +63,7 @@ namespace CodexDreamSkinManager
         public string SafeArea = "auto";
         public string TaskMode = "auto";
         public double BubbleOpacity;
-        public double SurfaceOpacity = 0.8;
+        public double SurfaceOpacity = 0;
         public string Accent = "";
         public string Category = "custom";
         public List<string> Tags = new List<string>();
@@ -292,7 +292,7 @@ namespace CodexDreamSkinManager
             SafeArea = "auto";
             TaskMode = "auto";
             BubbleOpacity = 0;
-            SurfaceOpacity = 0.8;
+            SurfaceOpacity = 0;
             Accent = "";
         }
 
@@ -450,7 +450,7 @@ namespace CodexDreamSkinManager
         public string SafeArea = "auto";
         public string TaskMode = "auto";
         public double BubbleOpacity;
-        public double SurfaceOpacity = 0.8;
+        public double SurfaceOpacity = 0;
         public string Accent = "";
 
         public void SetFocusPercent(double x, double y)
@@ -524,7 +524,7 @@ namespace CodexDreamSkinManager
         public string SafeArea = "auto";
         public string TaskMode = "auto";
         public double BubbleOpacity;
-        public double SurfaceOpacity = 0.8;
+        public double SurfaceOpacity = 0;
         public string Accent = "";
 
         public void Validate()

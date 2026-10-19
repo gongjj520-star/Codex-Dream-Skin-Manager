@@ -111,7 +111,7 @@ namespace CodexDreamSkinManager
                         theme.SafeArea = ReadString(row, "safeArea", "auto");
                         theme.TaskMode = ReadString(row, "taskMode", "auto");
                         theme.BubbleOpacity = ReadDouble(row, "bubbleOpacity", 0);
-                        theme.SurfaceOpacity = ReadDouble(row, "surfaceOpacity", 0.8);
+                        theme.SurfaceOpacity = ReadDouble(row, "surfaceOpacity", 0);
                         theme.Accent = ReadString(row, "accent", "");
                         object tags;
                         if (row.TryGetValue("tags", out tags))

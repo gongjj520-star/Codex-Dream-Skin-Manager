@@ -26,7 +26,7 @@ namespace CodexDreamSkinManager
         public string SafeArea = "auto";
         public string TaskMode = "auto";
         public double BubbleOpacity;
-        public double SurfaceOpacity = 0.8;
+        public double SurfaceOpacity = 0;
         public string Accent = "";
         public string SafeCssPath = "";
         public string LicensePath = "";
@@ -266,7 +266,7 @@ namespace CodexDreamSkinManager
             data.SafeArea = ReadString(art, "safeArea", "auto");
             data.TaskMode = ReadString(art, "taskMode", "auto");
             data.BubbleOpacity = ReadDouble(art, "bubbleOpacity", 0);
-            data.SurfaceOpacity = ReadDouble(art, "surfaceOpacity", 0.8);
+            data.SurfaceOpacity = ReadDouble(art, "surfaceOpacity", 0);
             data.Accent = ReadString(palette, "accent", "").ToUpperInvariant();
             object tags;
             if (manifest.TryGetValue("tags", out tags))

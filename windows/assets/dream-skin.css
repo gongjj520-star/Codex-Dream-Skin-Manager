@@ -20,7 +20,7 @@
   --ds-shell-background: rgb(var(--ds-bg-rgb) / .58);
   /* Shared floating surface settings. Change background alpha, never element
      opacity: text, icons, images and semantic highlights must stay opaque. */
-  --ds-surface-opacity: .80;
+  --ds-surface-opacity: 0;
   --ds-surface-blur: 10px;
   --ds-surface-background: rgb(var(--ds-panel-rgb) / var(--ds-surface-opacity));
   --ds-surface-filter: blur(var(--ds-surface-blur)) saturate(106%);
@@ -1434,10 +1434,18 @@ html[data-dream-skin="active"] main:is(.main-surface, [data-app-shell-main-surfa
 
 /* Newer builds move the composer fade into a short spacer above the footer.
    It is outside the composer root, so clearing only the root leaves a dark
-   horizontal cap while the input itself is still translucent. */
+   horizontal cap while the input itself is still translucent. 26.1013 moves
+   its offset, height and gradient into CSS Modules; match the decorative
+   child of the native sticky spacer without relying on those utility classes. */
 html[data-dream-skin="active"] main:is(.main-surface, [data-app-shell-main-surface], [class*="_MainContentSurface_"])
   .thread-scroll-container
-  [aria-hidden="true"][class~="pointer-events-none"][class~="absolute"][class~="inset-x-0"][class~="-top-8"][class~="h-8"][class~="bg-gradient-to-t"][class~="from-surface"] {
+  [aria-hidden="true"][class~="pointer-events-none"][class~="absolute"][class~="inset-x-0"][class~="-top-8"][class~="h-8"][class~="bg-gradient-to-t"][class~="from-surface"],
+html[data-dream-skin="active"] main:is(.main-surface, [data-app-shell-main-surface], [class*="_MainContentSurface_"])
+  .thread-scroll-container
+  [class~="pointer-events-none"][class~="sticky"][class~="bottom-0"] >
+  [aria-hidden="true"][class~="pointer-events-none"][class~="absolute"][class~="inset-x-0"][class~="z-0"][class~="from-surface"]:not(
+    [role], [role="dialog"] *, [role="menu"] *, [role="tooltip"] *
+  ) {
   background: transparent !important;
   background-image: none !important;
   box-shadow: none !important;

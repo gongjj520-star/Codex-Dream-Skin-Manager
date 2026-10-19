@@ -381,7 +381,7 @@
   };
 
   const surfaceOpacity = typeof ART.surfaceOpacity === "number" && Number.isFinite(ART.surfaceOpacity)
-    ? clamp(ART.surfaceOpacity, 0, 1) : 0.8;
+    ? clamp(ART.surfaceOpacity, 0, 1) : 0;
 
   const readableAccentInk = (accent, panel) => {
     // The send button sits on the composer surface, which renders panel RGB
@@ -1002,13 +1002,19 @@
     // input. It is a neutral surface candidate, but it is part of the canvas,
     // not an adjustable panel. Keep the exact utility signature narrow so
     // dialogs, menus and other aria-hidden transitions remain independent.
+    // 26.1013 moves the offset into CSS Modules and makes the surface a direct
+    // footer child; the old -top-8 marker is no longer present on that node.
     const isComposerDecoration = (node) => {
       if (!node || node.getAttribute?.("role") ||
         node.closest?.('[role="dialog"], [role="menu"], [role="tooltip"]')) return false;
       if (!node.matches?.(
-        '[class~="pointer-events-none"][class~="absolute"][class~="inset-x-0"]' +
-        '[class~="-top-8"]',
+        '[class~="pointer-events-none"][class~="absolute"][class~="inset-x-0"]',
       )) return false;
+      const legacyOffset = node.matches?.('[class~="-top-8"]');
+      const footerSurface = node.matches?.(
+        '[aria-hidden="true"][class~="z-0"][class~="bottom-0"][class~="bg-surface"]',
+      ) && node.parentElement?.matches?.('[data-thread-scroll-footer]');
+      if (!legacyOffset && !footerSurface) return false;
       const fadeSurface = node.matches?.('[class~="z-0"][class~="bg-surface"]') ||
         node.matches?.('[aria-hidden="true"][class~="bg-surface"]') ||
         node.matches?.('[aria-hidden="true"][class~="backdrop-blur-lg"]');

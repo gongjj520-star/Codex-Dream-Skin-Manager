@@ -27,7 +27,7 @@ param(
   [ValidateSet('auto','left','right','center','none')][string]$SafeArea = 'auto',
   [ValidateSet('auto','ambient','banner','full','off')][string]$TaskMode = 'auto',
   [ValidateRange(0.0, 1.0)][double]$BubbleOpacity = 0.0,
-  [ValidateRange(0.0, 1.0)][double]$SurfaceOpacity = 0.8,
+  [ValidateRange(0.0, 1.0)][double]$SurfaceOpacity = 0,
   [ValidatePattern('^$|^#[0-9A-Fa-f]{6}$')][string]$Accent = '',
   [switch]$KeepCurrent,
   # The manager will reconcile/start the session after committing this theme.
@@ -100,7 +100,7 @@ function ConvertTo-ManagerTheme {
     [string]$ThemeSafeArea = 'auto',
     [string]$ThemeTaskMode = 'auto',
     [double]$ThemeBubbleOpacity = 0.0,
-    [double]$ThemeSurfaceOpacity = 0.8,
+    [double]$ThemeSurfaceOpacity = 0,
     [string]$ThemeAccent = ''
   )
   return [ordered]@{
@@ -162,7 +162,7 @@ function ConvertTo-ManagerPresetOption {
     -ThemeSafeArea $(if ($Preset.safeArea) { "$($Preset.safeArea)" } else { 'auto' }) `
     -ThemeTaskMode $(if ($Preset.taskMode) { "$($Preset.taskMode)" } else { 'auto' }) `
     -ThemeBubbleOpacity $(if ($null -ne $Preset.bubbleOpacity) { [double]$Preset.bubbleOpacity } else { 0.0 }) `
-    -ThemeSurfaceOpacity $(if ($null -ne $Preset.surfaceOpacity) { [double]$Preset.surfaceOpacity } else { 0.8 }) `
+    -ThemeSurfaceOpacity $(if ($null -ne $Preset.surfaceOpacity) { [double]$Preset.surfaceOpacity } else { 0 }) `
     -ThemeAccent $(if ($Preset.accent) { "$($Preset.accent)" } else { '' })
 }
 
@@ -751,7 +751,7 @@ function Get-ManagerThemeFingerprint {
     safeArea = if ($Theme.art -and $Theme.art.safeArea) { "$($Theme.art.safeArea)" } else { 'auto' }
     taskMode = if ($Theme.art -and $Theme.art.taskMode) { "$($Theme.art.taskMode)" } else { 'auto' }
     bubbleOpacity = if ($Theme.art -and $null -ne $Theme.art.bubbleOpacity) { [double]$Theme.art.bubbleOpacity } else { 0.0 }
-    surfaceOpacity = if ($Theme.art -and $null -ne $Theme.art.surfaceOpacity) { [double]$Theme.art.surfaceOpacity } else { 0.8 }
+    surfaceOpacity = if ($Theme.art -and $null -ne $Theme.art.surfaceOpacity) { [double]$Theme.art.surfaceOpacity } else { 0 }
     accent = $accent
   }
   $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -811,7 +811,7 @@ function ConvertTo-ManagerBatchTheme {
   $safeAreaValue = if ($Item.safeArea) { "$($Item.safeArea)" } else { 'auto' }
   $taskModeValue = if ($Item.taskMode) { "$($Item.taskMode)" } else { 'auto' }
   $bubbleOpacityValue = if ($null -ne $Item.bubbleOpacity) { [double]$Item.bubbleOpacity } else { 0.0 }
-  $surfaceOpacityValue = if ($null -ne $Item.surfaceOpacity) { [double]$Item.surfaceOpacity } else { 0.8 }
+  $surfaceOpacityValue = if ($null -ne $Item.surfaceOpacity) { [double]$Item.surfaceOpacity } else { 0 }
   $categoryValue = if ($Item.category) { "$($Item.category)" } else { 'custom' }
   $tagsValue = @($Item.tags | ForEach-Object { "$_".Trim() })
   if ($appearanceValue -notin @('auto','light','dark') -or $safeAreaValue -notin @('auto','left','right','center','none') -or
@@ -1250,7 +1250,7 @@ function Get-ManagerThemeCatalog {
         -ThemeSafeArea $(if ($loaded.Theme.art.safeArea) { "$($loaded.Theme.art.safeArea)" } else { 'auto' }) `
         -ThemeTaskMode $(if ($loaded.Theme.art.taskMode) { "$($loaded.Theme.art.taskMode)" } else { 'auto' }) `
         -ThemeBubbleOpacity $(if ($null -ne $loaded.Theme.art.bubbleOpacity) { [double]$loaded.Theme.art.bubbleOpacity } else { 0.0 }) `
-        -ThemeSurfaceOpacity $(if ($null -ne $loaded.Theme.art.surfaceOpacity) { [double]$loaded.Theme.art.surfaceOpacity } else { 0.8 }) `
+        -ThemeSurfaceOpacity $(if ($null -ne $loaded.Theme.art.surfaceOpacity) { [double]$loaded.Theme.art.surfaceOpacity } else { 0 }) `
         -ThemeAccent $(if ($loaded.Theme.palette.accent) { "$($loaded.Theme.palette.accent)" } else { '' })
     } catch { $catalogMessage += " 已跳过无法读取的主题 $($saved.Name)。" }
   }

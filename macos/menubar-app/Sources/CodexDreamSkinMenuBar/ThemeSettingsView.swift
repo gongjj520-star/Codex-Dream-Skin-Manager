@@ -18,7 +18,7 @@ struct ThemeSettingsView: View {
   @State private var framing = false
   @State private var zoom = 1.0
   @State private var bubble = 0.0
-  @State private var surface = 0.8
+  @State private var surface = 0.0
   @State private var safeArea = "auto"
   @State private var taskMode = "auto"
   @State private var accent = Color.indigo
@@ -108,7 +108,7 @@ struct ThemeSettingsView: View {
     focusX = art["focusX"] as? Double ?? 0.5; focusY = art["focusY"] as? Double ?? 0.5
     positionX = art["positionX"] as? Double ?? 0; positionY = art["positionY"] as? Double ?? 0
     zoom = art["zoom"] as? Double ?? 1; bubble = art["bubbleOpacity"] as? Double ?? 0
-    surface = art["surfaceOpacity"] as? Double ?? 0.8
+    surface = art["surfaceOpacity"] as? Double ?? 0.0
     positionMode = art["positionMode"] as? String ?? "locked"
     safeArea = art["safeArea"] as? String ?? "auto"; taskMode = art["taskMode"] as? String ?? "auto"
     framing = art["framingEnabled"] as? Bool ?? ["positionX", "positionY", "zoom", "positionMode"].contains { art[$0] != nil }
