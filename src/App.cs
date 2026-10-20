@@ -13,10 +13,12 @@ namespace CodexDreamSkinManager
         [STAThread]
         private static void Main()
         {
+            Thread.CurrentThread.CurrentUICulture = System.Globalization.CultureInfo.GetCultureInfo("zh-CN");
             using (SingleInstanceGuard guard = SingleInstanceGuard.TryAcquire(InstanceName))
             {
                 if (guard == null)
                 {
+                    ExistingWindowActivator.Activate(UserMessages.AppTitle);
                     ExistingWindowActivator.Activate("Codex Dream Skin Manager");
                     return;
                 }
@@ -30,7 +32,7 @@ namespace CodexDreamSkinManager
                 }
                 catch (Exception ex)
                 {
-                    startupError = ex.Message;
+                    startupError = UserMessages.Diagnostic(ex.Message);
                 }
 
                 MainWindow window = new MainWindow(service);

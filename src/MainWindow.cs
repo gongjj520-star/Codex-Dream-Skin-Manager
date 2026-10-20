@@ -227,7 +227,7 @@ namespace CodexDreamSkinManager
         {
             this.service = service;
             this.restartConfirmation = restartConfirmation;
-            Title = "Codex Dream Skin Manager";
+            Title = UserMessages.AppTitle;
             Width = Math.Min(1280, SystemParameters.WorkArea.Width);
             Height = Math.Min(720, SystemParameters.WorkArea.Height);
             MinWidth = 760;
@@ -640,7 +640,7 @@ namespace CodexDreamSkinManager
             Grid fileRow = new Grid();
             fileRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             fileRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            imagePathBox = InputBox("选择 PNG、APNG、JPG、WebP、GIF 或 MP4");
+            imagePathBox = InputBox("选择背景图片、动图或视频");
             imagePathBox.IsReadOnly = true;
             fileRow.Children.Add(imagePathBox);
             browseImageButton = SecondaryButton("选择文件");
@@ -1108,7 +1108,7 @@ namespace CodexDreamSkinManager
                 }
 
                 string question = "发现新版本 " + update.LatestVersion + "（当前 " + update.CurrentVersion + "）。\n\n" +
-                    "是否下载安装包？下载完成后会校验 SHA-256，再启动安装程序；安装时可能关闭当前管理器。";
+                    "是否下载安装包？下载完成后会检查文件是否完整，再启动安装程序；安装时可能关闭当前管理器。";
                 if (MessageBox.Show(this, question, "发现新版本", MessageBoxButton.YesNo,
                     MessageBoxImage.Question) != MessageBoxResult.Yes)
                 {
@@ -1126,7 +1126,7 @@ namespace CodexDreamSkinManager
                 if (showFailureMessage)
                 {
                     SetMessage("检查更新失败：" + ex.Message, true);
-                    MessageBox.Show(this, ex.Message, "检查更新失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show(this, UserMessages.Diagnostic(ex.Message), "检查更新失败", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
             finally
@@ -1402,8 +1402,12 @@ namespace CodexDreamSkinManager
             await RunOperationAsync(async delegate
             {
                 SetOperationPhase("正在读取状态...", "正在读取连接状态...");
+                bool video = string.Equals(Path.GetExtension(theme.ImagePath), ".mp4", StringComparison.OrdinalIgnoreCase);
                 // The manager may have stayed open while Codex exited or restarted.
-                currentStatus = await service.GetStatusAsync();
+                // Images can reconcile a lost renderer after publication. Video
+                // must find a live decoder before publication, so keep its full
+                // preflight to select the cold-start transaction when needed.
+                currentStatus = await service.GetStatusAsync(!video);
                 ActionAvailability availability = ActionAvailability.FromStatus(currentStatus, false, true, hasValidCustomImage);
                 if (availability.RequiresRecovery)
                 {
@@ -1414,7 +1418,6 @@ namespace CodexDreamSkinManager
                 }
                 else
                 {
-                    bool video = string.Equals(Path.GetExtension(theme.ImagePath), ".mp4", StringComparison.OrdinalIgnoreCase);
                     // A degraded renderer can still have a healthy, reusable
                     // CDP/injector session (for example after an image theme
                     // change), so normal image themes try live apply first.
@@ -1676,7 +1679,7 @@ namespace CodexDreamSkinManager
             }
             catch (OperationCanceledException ex)
             {
-                finalMessage = ex.Message;
+                finalMessage = UserMessages.Diagnostic(ex.Message);
                 cancelled = true;
             }
             catch (Exception ex)
@@ -1755,7 +1758,7 @@ namespace CodexDreamSkinManager
                         customPreviewSurface.Background = BrushFrom("#E3E8EE");
                     }
                     hasValidCustomImage = true;
-                    string details = validation.Width + " x " + validation.Height + " · " + validation.Format.ToUpperInvariant();
+                    string details = validation.Width + " × " + validation.Height + " 像素";
                     if (string.Equals(validation.Format, "mp4", StringComparison.OrdinalIgnoreCase)) details += " · 视频";
                     else if (validation.Animated) details += " · 动图 " + validation.FrameCount + " 帧";
                     SetMessage(string.IsNullOrWhiteSpace(validation.PreviewMessage) ? "背景文件验证通过：" + details : validation.PreviewMessage + " " + details, false);
@@ -1799,7 +1802,7 @@ namespace CodexDreamSkinManager
             if (operationRunning || statusRefreshCount > 0) return;
             OpenFileDialog dialog = new OpenFileDialog {
                 Title = "导入主题包",
-                Filter = "Codex Dream Skin 主题包|*.cdskin",
+                Filter = "梦幻皮肤主题包|*.cdskin",
                 Multiselect = true
             };
             if (dialog.ShowDialog(this) != true) return;
@@ -1972,7 +1975,7 @@ namespace CodexDreamSkinManager
             if (theme == null) { SetMessage("请先选择需要导出的主题。", true); return; }
             SaveFileDialog dialog = new SaveFileDialog {
                 Title = "导出主题包",
-                Filter = "Codex Dream Skin 主题包|*.cdskin",
+                Filter = "梦幻皮肤主题包|*.cdskin",
                 FileName = SafeFileName(theme.Name) + ".cdskin",
                 DefaultExt = ".cdskin",
                 AddExtension = true,
@@ -2137,18 +2140,18 @@ namespace CodexDreamSkinManager
         private void SetMessage(string message, bool error)
         {
             if (messageText == null) return;
-            messageText.Text = message;
+            messageText.Text = error ? UserMessages.Diagnostic(message) : message;
             messageText.Foreground = error ? DangerBrush : MutedBrush;
         }
 
         private static string BuildStatusDetails(DreamSkinStatus status)
         {
             List<string> lines = new List<string>();
-            if (!string.IsNullOrWhiteSpace(status.StatusMessage)) lines.Add(status.StatusMessage);
+            if (!string.IsNullOrWhiteSpace(status.StatusMessage)) lines.Add(UserMessages.Diagnostic(status.StatusMessage));
             if (!string.IsNullOrWhiteSpace(status.RendererMessage) && status.RendererMessage != status.StatusMessage)
-                lines.Add(status.RendererMessage);
+                lines.Add(UserMessages.Diagnostic(status.RendererMessage));
             if (!string.IsNullOrWhiteSpace(status.ManagerApiVersion)) lines.Add("管理接口：" + status.ManagerApiVersion);
-            if (!string.IsNullOrWhiteSpace(status.NodeVersion)) lines.Add("Node.js：" + status.NodeVersion);
+            if (!string.IsNullOrWhiteSpace(status.NodeVersion)) lines.Add("运行组件：" + status.NodeVersion);
             if (!string.IsNullOrWhiteSpace(status.CodexVersion)) lines.Add("Codex：" + status.CodexVersion);
             return string.Join(Environment.NewLine, lines.ToArray());
         }

@@ -8,14 +8,14 @@
   #define OutputDir "..\dist"
 #endif
 
-#define AppName "Codex Dream Skin Manager"
+#define AppName "Codex 梦幻皮肤管理器"
 #define AppExeName "CodexDreamSkinManager.exe"
 
 [Setup]
 AppId={{A4A6B717-9DB4-4C21-9AF1-7F9EA5D2CF5E}
 AppName={#AppName}
 AppVersion={#AppVersion}
-AppPublisher=Codex Dream Skin
+AppPublisher=梦幻皮肤管理器开发团队
 AppPublisherURL=https://github.com/rxkjovo/Codex-Dream-Skin-Manager
 AppSupportURL=https://github.com/rxkjovo/Codex-Dream-Skin-Manager/issues
 DefaultDirName={localappdata}\Programs\CodexDreamSkinManager
@@ -36,11 +36,11 @@ RestartApplications=no
 Uninstallable=yes
 VersionInfoVersion={#AppVersion}
 VersionInfoProductName={#AppName}
-VersionInfoCompany=Codex Dream Skin
-VersionInfoDescription={#AppName} installer
+VersionInfoCompany=梦幻皮肤管理器开发团队
+VersionInfoDescription={#AppName}安装程序
 
 [Languages]
-Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimplified"; MessagesFile: "..\windows\installer\languages\ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加快捷方式："

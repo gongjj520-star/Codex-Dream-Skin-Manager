@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [switch]$TestsOnly,
   [string]$SkillRoot,
@@ -193,7 +193,7 @@ function New-RunnableWindowsPackage(
   }
   $packagedTheme.id = "preset-$replacementDefaultPresetId"
   $packagedTheme.name = "$($replacementDefaultPreset.name)"
-  $packagedTheme.tagline = 'Make something wonderful.'
+  $packagedTheme.tagline = '创造美好的事物。'
   $packagedTheme.image = 'dream-reference.jpg'
   $packagedTheme.appearance = "$($replacementDefaultPreset.appearance)"
   $packagedTheme.art = [pscustomobject][ordered]@{

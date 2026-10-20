@@ -1,6 +1,14 @@
 (() => {
   'use strict';
   const $ = selector => document.querySelector(selector);
+  function displayError(error) {
+    const message=typeof error==='string'?error:typeof error?.message==='string'?error.message:'';
+    if(/[\u3400-\u9fff]/.test(message)&&!/[A-Za-z]+(?:\s+[A-Za-z]+){2,}/.test(message))return message;
+    if(error?.name==='QuotaExceededError')return '本机存储空间不足，请清理空间后重试。';
+    if(error?.name==='SecurityError'||error?.name==='NotAllowedError')return '系统限制了素材访问，请重新选择图片或恢复默认设置。';
+    if(error?.name==='EncodingError')return '图片无法读取，请更换图片后重试。';
+    return '操作未完成，请重新选择图片或恢复默认设置后重试。';
+  }
   const duration = 12000;
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const native = !window.AEMEATH_EXTERNAL && Boolean(window.webkit?.messageHandlers?.launcher);
@@ -237,10 +245,10 @@
     if(Math.abs(t-lastUI)>60 || t===0 || t>=duration) {
       lastUI=t;
       $('#ratio').textContent=`${(p*100).toFixed(2).padStart(5,'0')}%`;
-      $('.sync-phase').textContent=s<6.5?'INITIALIZING':p<1?'SYNCHRONIZING':'SYNC COMPLETE';
+      $('.sync-phase').textContent=s<6.5?'正在初始化':p<1?'正在同步':'同步完成';
       $('#timecode').textContent=`00:${String(Math.floor(s)).padStart(2,'0')}:${String(Math.floor(s%1*30)).padStart(2,'0')}`;
       slider.value=String(s);
-      $('#elapsed').innerHTML=`${s.toFixed(1).padStart(4,'0')} <span>/ 12.0s</span>`;
+      $('#elapsed').innerHTML=`${s.toFixed(1).padStart(4,'0')} <span>/ 12.0 秒</span>`;
       root.dataset.elapsed=s.toFixed(2);
       root.dataset.stage=s>=11?'shutter':s<1.15?'pulse':s<4.18?'identity':s<4.74?'dispersing':s<5.08?'scattered':s<7.18?'drawing':s<7.43?'colorize':'portrait';
     }
@@ -297,7 +305,7 @@
   window.launcherUI={
     openSettings,
     beginLaunch(){mode='launch';document.body.classList.add('launch-mode');replay();},
-    error(message){stop();scene.style.opacity='0';root.classList.add('finished');$('.end-description').textContent=message;$('.eyebrow').textContent='LAUNCH UNAVAILABLE';$('.end-screen h1').textContent='暂时无法打开 Codex';},
+    error(message){stop();scene.style.opacity='0';root.classList.add('finished');$('.end-description').textContent=displayError(message);$('.eyebrow').textContent='启动暂不可用';$('.end-screen h1').textContent='暂时无法打开 Codex';},
     waiting(){ $('.end-description').textContent='正在等待 Codex 打开…'; }
   };
   if(native){
@@ -308,8 +316,8 @@
   let savedImages={},pendingImages={},busy=false;
   const settings=$('#settings-dialog'),status=$('#settings-status');
   const textFields=[
-    {key:'introTitle',input:'#intro-title',target:'.boot-title',fallback:'By：若惜',limit:16},
-    {key:'introCaption',input:'#intro-caption',target:'.boot-caption',fallback:'CODEX INITIALIZE / TYPE-0',limit:48},
+    {key:'introTitle',input:'#intro-title',target:'.boot-title',fallback:'作者：若惜',limit:16},
+    {key:'introCaption',input:'#intro-caption',target:'.boot-caption',fallback:'Codex 正在准备启动',limit:48},
     {key:'artworkSubtitle',input:'#artwork-subtitle',target:'#subtitle',fallback:'幽灵来到…你身边～',limit:60}
   ];
   const textValue=(images,field)=>typeof images[field.key]==='string'?images[field.key].slice(0,field.limit):field.fallback;
@@ -363,7 +371,7 @@
     try{
       pendingImages={...pendingImages,...await window.imageSettings.importImage(file,kind)};thumbnails();
       status.textContent='图片已准备好，点击「保存并预览」应用。';
-    }catch(error){status.textContent=error.message;}
+    }catch(error){status.textContent=displayError(error);}
     finally{setBusy(false);event.target.value='';}
   });
   $('#reset-images').addEventListener('click',()=>{pendingImages={};thumbnails();status.textContent='已选用默认图片、文字和背景显现程度，点击「保存并预览」应用。';});
@@ -371,7 +379,7 @@
     setBusy(true);status.textContent='正在保存…';
     try{
       await applyImages(pendingImages);await window.imageSettings.save(pendingImages);savedImages={...pendingImages};settings.close('preview');
-    }catch(error){await applyImages(savedImages);status.textContent='保存失败，原设置已保留：'+error.message;}
+    }catch(error){await applyImages(savedImages);status.textContent='保存失败，原设置已保留：'+displayError(error);}
     finally{setBusy(false);}
   });
   window.imageSettings.load().catch(()=>({})).then(async images=>{

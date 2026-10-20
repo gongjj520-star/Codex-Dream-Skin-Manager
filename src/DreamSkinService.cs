@@ -48,7 +48,7 @@ namespace CodexDreamSkinManager
         {
             JavaScriptSerializer serializer = new JavaScriptSerializer();
             Dictionary<string, object> data = serializer.Deserialize<Dictionary<string, object>>(json);
-            if (data == null) throw new FormatException("状态 JSON 为空。");
+            if (data == null) throw new FormatException("未收到有效的状态信息。");
             DreamSkinStatus status = new DreamSkinStatus();
             status.IsRunning = ReadBool(data, "isRunning");
             status.IsPaused = ReadBool(data, "isPaused");
@@ -127,13 +127,21 @@ namespace CodexDreamSkinManager
             return status;
         }
 
-        public async Task<DreamSkinStatus> GetStatusAsync()
+        public async Task<DreamSkinStatus> GetStatusAsync(bool quick = false)
         {
             EnsureManagerAvailable();
-            ScriptResult result = await PowerShellRunner.RunAsync(managerScript,
-                new[] { P("-Action"), V("Status"), P("-SkipThemes"),
-                    P("-SkillRoot"), V(Path.Combine(rootDirectory, "windows")) }, ReadTimeoutMilliseconds);
-            return ParseStatus(result.Output);
+            List<ScriptArgument> args = new List<ScriptArgument> {
+                P("-Action"), V("Status"), P("-SkipThemes"),
+                P("-SkillRoot"), V(Path.Combine(rootDirectory, "windows"))
+            };
+            if (quick) args.Add(P("-Quick"));
+            ScriptResult result = await PowerShellRunner.RunAsync(managerScript, args, ReadTimeoutMilliseconds);
+            DreamSkinStatus status = ParseStatus(result.Output);
+            // A verified renderer can resolve an unreadable packaged Node
+            // identity. Preserve that recovery path before asking to restart.
+            if (quick && string.Equals(status.StatusKind, "uninspectable", StringComparison.OrdinalIgnoreCase))
+                return await GetStatusAsync();
+            return status;
         }
 
         public async Task<DreamSkinStatus> GetThemesAsync()
@@ -149,7 +157,7 @@ namespace CodexDreamSkinManager
         {
             JavaScriptSerializer serializer = new JavaScriptSerializer();
             Dictionary<string, object> data = serializer.Deserialize<Dictionary<string, object>>(json);
-            if (data == null) throw new FormatException("更新检查 JSON 为空。");
+            if (data == null) throw new FormatException("未收到有效的更新信息。");
             UpdateCheckResult result = new UpdateCheckResult {
                 CurrentVersion = ReadString(data, "currentVersion", ""),
                 LatestVersion = ReadString(data, "latestVersion", ""),
@@ -193,7 +201,7 @@ namespace CodexDreamSkinManager
         {
             JavaScriptSerializer serializer = new JavaScriptSerializer();
             Dictionary<string, object> data = serializer.Deserialize<Dictionary<string, object>>(json);
-            if (data == null) throw new FormatException("图片验证 JSON 为空。");
+            if (data == null) throw new FormatException("未收到有效的图片检查结果。");
             return new ImageValidationResult {
                 Path = ReadString(data, "path", ""),
                 Format = ReadString(data, "format", ""),
@@ -220,7 +228,7 @@ namespace CodexDreamSkinManager
         {
             JavaScriptSerializer serializer = new JavaScriptSerializer();
             Dictionary<string, object> data = serializer.Deserialize<Dictionary<string, object>>(json);
-            if (data == null) throw new FormatException("批量导入 JSON 为空。");
+            if (data == null) throw new FormatException("未收到有效的批量导入结果。");
             BatchImportResult result = new BatchImportResult {
                 Imported = ReadInt(data, "imported"),
                 Skipped = ReadInt(data, "skipped"),
@@ -329,7 +337,7 @@ namespace CodexDreamSkinManager
             if (!preset && (theme.IsPreset || !string.Equals(theme.Source, "saved", StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidOperationException("只能修改内置主题或“我的”已保存主题。");
             if (preset && string.IsNullOrWhiteSpace(theme.Id))
-                throw new InvalidOperationException("内置主题 ID 为空，无法保存参数。");
+                    throw new InvalidOperationException("内置主题缺少标识，无法保存设置。");
             if (!preset && string.IsNullOrWhiteSpace(theme.ThemeDirectory))
                 throw new InvalidOperationException("主题目录为空，无法保存参数。");
             options.Validate();
@@ -358,7 +366,7 @@ namespace CodexDreamSkinManager
             if (theme.IsPreset && string.Equals(theme.Source, "preset", StringComparison.OrdinalIgnoreCase))
             {
                 if (string.IsNullOrWhiteSpace(theme.Id))
-                    throw new InvalidOperationException("内置主题 ID 为空，无法删除。");
+                    throw new InvalidOperationException("内置主题缺少标识，无法删除。");
                 EnsureManagerAvailable();
                 return RunDeletePresetAsync(theme.Id);
             }
@@ -394,7 +402,7 @@ namespace CodexDreamSkinManager
         {
             JavaScriptSerializer serializer = new JavaScriptSerializer();
             Dictionary<string, object> data = serializer.Deserialize<Dictionary<string, object>>(json);
-            if (data == null) throw new FormatException("删除主题 JSON 为空。");
+            if (data == null) throw new FormatException("未收到有效的主题删除结果。");
             return new ThemeDeletionResult {
                 Id = ReadString(data, "id", ""),
                 Name = ReadString(data, "name", ""),
@@ -469,7 +477,7 @@ namespace CodexDreamSkinManager
                 {
                     FileAttributes attributes = File.GetAttributes(current);
                     if ((attributes & FileAttributes.ReparsePoint) != 0)
-                        throw new IOException(label + "不能是链接或 reparse point。");
+                        throw new IOException(label + "不能是文件或文件夹链接。");
                 }
                 DirectoryInfo parent = Directory.GetParent(current);
                 current = parent == null ? null : parent.FullName;

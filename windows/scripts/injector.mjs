@@ -856,16 +856,28 @@ export async function loadTheme(themeDir) {
     muted: normalizeThemeColor(rawColors?.muted, "#9ebdb3"),
     line: normalizeThemeColor(rawColors?.line, "rgba(124, 255, 70, .28)"),
   };
+  // Translate stock labels from older theme packages when displaying them.
+  // Keep user-authored text and the theme files themselves unchanged.
+  const defaultLabels = new Map([
+    ["CODEX DREAM SKIN", "Codex 梦幻皮肤"],
+    ["Make something wonderful.", "创造美好的事物。"],
+    ["DREAM SKIN ONLINE", "皮肤已启用"],
+    ["MAKE SOMETHING WONDERFUL", "创造美好的事物"],
+  ]);
+  const displayText = (value, fallback, field) => {
+    const text = normalizeThemeText(value, fallback, 120, field, themePath);
+    return defaultLabels.get(text) ?? text;
+  };
   const theme = {
     schemaVersion: 1,
     id: normalizeThemeText(raw.id, "custom", 80, "id", themePath),
-    name: normalizeThemeText(raw.name, "Codex Dream Skin", 80, "name", themePath),
-    brandSubtitle: normalizeThemeText(raw.brandSubtitle, "CODEX DREAM SKIN", 120, "brandSubtitle", themePath),
-    tagline: normalizeThemeText(raw.tagline, "Make something wonderful.", 120, "tagline", themePath),
+    name: normalizeThemeText(raw.name, "梦幻皮肤", 80, "name", themePath),
+    brandSubtitle: displayText(raw.brandSubtitle, "Codex 梦幻皮肤", "brandSubtitle"),
+    tagline: displayText(raw.tagline, "创造美好的事物。", "tagline"),
     projectPrefix: normalizeThemeText(raw.projectPrefix, "选择项目 · ", 120, "projectPrefix", themePath),
     projectLabel: normalizeThemeText(raw.projectLabel, "◉  选择项目", 120, "projectLabel", themePath),
-    statusText: normalizeThemeText(raw.statusText, "DREAM SKIN ONLINE", 120, "statusText", themePath),
-    quote: normalizeThemeText(raw.quote, "MAKE SOMETHING WONDERFUL", 120, "quote", themePath),
+    statusText: displayText(raw.statusText, "皮肤已启用", "statusText"),
+    quote: displayText(raw.quote, "创造美好的事物", "quote"),
     image,
     appearance: normalizedChoice(raw.appearance, "appearance", THEME_CHOICES.appearance, "auto"),
     art: {
@@ -937,6 +949,7 @@ export async function loadPayload(
   themeDir = path.join(root, "assets"),
   candidateTheme = null,
   mediaCacheRoot = MEDIA_CACHE_ROOT,
+  { materializeMedia = true } = {},
 ) {
   const loadedTheme = candidateTheme ?? await loadTheme(themeDir);
   const [css, template] = await Promise.all([
@@ -987,7 +1000,11 @@ export async function loadPayload(
   } catch (error) {
     throw new Error(`Payload failed to parse as JavaScript: ${error.message}`);
   }
-  const mediaFilePath = await materializeMediaSnapshot(loadedTheme.imageBytes, mediaCacheRoot, extension);
+  // Read-only verification still validates the exact bytes and revision, but
+  // never binds media. Avoid copying a whole video to a fresh cache for it.
+  const mediaFilePath = materializeMedia
+    ? await materializeMediaSnapshot(loadedTheme.imageBytes, mediaCacheRoot, extension)
+    : null;
   const { imageBytes: _imageBytes, ...themeState } = loadedTheme;
   return {
     ...themeState,
@@ -1063,9 +1080,13 @@ async function waitForCodexProbe(session, timeoutMs = 1800) {
   while (Date.now() < deadline) {
     try {
       probe = await probeSession(session);
-      if (probe?.codex) return probe;
-    } catch {
+      if (probe?.codex || probe?.excludedPetSurface) return probe;
+    } catch (error) {
       // The renderer may be between documents while the early payload waits.
+      // Broken sockets, invalid scripts and other permanent failures retain
+      // the watcher's normal error backoff instead of the first-paint retry.
+      if (!/Execution context was destroyed|Cannot find context with specified id|Cannot find default execution context/i
+        .test(String(error?.message ?? ""))) throw error;
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
@@ -1284,7 +1305,11 @@ export function earlyPayloadFor(payload, revision) {
   return `(() => {
     const generationKey = "__CODEX_DREAM_SKIN_EARLY_GENERATION__";
     const appliedKey = "__CODEX_DREAM_SKIN_EARLY_APPLIED__";
+    const cleanupKey = "__CODEX_DREAM_SKIN_EARLY_CLEANUP__";
     const generation = ${JSON.stringify(revision)};
+    // A short first-paint retry may revisit the same document. Replace its
+    // bootstrap instead of accumulating timers with the same generation.
+    if (typeof window[cleanupKey] === "function") window[cleanupKey]();
     window[generationKey] = generation;
     let bootstrapTimer = null;
     let timeout = null;
@@ -1293,6 +1318,8 @@ export function earlyPayloadFor(payload, revision) {
       bootstrapTimer = null;
       if (timeout) clearTimeout(timeout);
       timeout = null;
+      document.removeEventListener?.("DOMContentLoaded", install);
+      if (window[cleanupKey] === stop) delete window[cleanupKey];
     };
     const hasCodexSurface = () => {
       if (location.protocol !== "app:") return false;
@@ -1322,6 +1349,7 @@ export function earlyPayloadFor(payload, revision) {
       window[appliedKey] = generation;
       return true;
     };
+    window[cleanupKey] = stop;
     if (install()) return;
     document.addEventListener?.("DOMContentLoaded", install, { once: true });
     bootstrapTimer = setInterval(install, 250);
@@ -1879,7 +1907,9 @@ async function runOneShot(options) {
   let loadedPayload = null;
   try {
     loadedPayload = (["once", "apply-live", "verify", "verify-live"].includes(options.mode) || options.reload)
-      ? await loadPayload(options.themeDir) : null;
+      ? await loadPayload(options.themeDir, null, MEDIA_CACHE_ROOT, {
+        materializeMedia: options.mode === "once" || options.mode === "apply-live" || options.reload,
+      }) : null;
   } catch (error) {
     if (operationToken) {
       await Promise.all(connected.map(({ session }) => presentOperationUi(
@@ -1998,6 +2028,7 @@ async function runWatch(options) {
   const fallbackTargets = new Map();
   const fallbackListeners = new Set();
   const targetFailures = new Map();
+  const targetInitializationDeadlines = new Map();
   let stopping = false;
   let listFailures = 0;
   let lastListErrorLogAt = 0;
@@ -2018,6 +2049,18 @@ async function runWatch(options) {
       previous.lastLogAt = now;
     }
     targetFailures.set(target.id, { failures, lastLogAt: previous.lastLogAt, until: now + delayMs });
+  };
+  const deferInitializingTarget = (target) => {
+    const now = Date.now();
+    if (!targetInitializationDeadlines.has(target.id)) {
+      targetInitializationDeadlines.set(target.id, now + 30000);
+      diagnostics.log(`[dream-skin] renderer ${target.id} is initializing`);
+    }
+    if (now < targetInitializationDeadlines.get(target.id)) {
+      // Missing shell markers during first paint are not an injection failure.
+      // Keep this grace period bounded, without a five-second failure cooldown.
+      targetFailures.set(target.id, { failures: 0, lastLogAt: 0, until: now + 250 });
+    } else rejectTarget(target, 5000);
   };
   const attachLoadFallback = (id, target, session) => {
     if (fallbackListeners.has(session)) return;
@@ -2046,6 +2089,7 @@ async function runWatch(options) {
   const releaseIdentitySessions = async () => {
     const records = [...sessions.entries()];
     sessions.clear();
+    targetInitializationDeadlines.clear();
     for (const [id, session] of records) {
       await removeEarlyPayload(session, earlyScripts.get(id));
       earlyScripts.delete(id);
@@ -2203,6 +2247,9 @@ async function runWatch(options) {
       for (const id of targetFailures.keys()) {
         if (!activeIds.has(id)) targetFailures.delete(id);
       }
+      for (const id of targetInitializationDeadlines.keys()) {
+        if (!activeIds.has(id)) targetInitializationDeadlines.delete(id);
+      }
       for (const [id, session] of sessions) {
         if (!activeIds.has(id) || session.closed) {
           await removeEarlyPayload(session, earlyScripts.get(id));
@@ -2241,13 +2288,18 @@ async function runWatch(options) {
               diagnostics.error(`[dream-skin] early injection unavailable for ${target.id}: ${error.message}`);
             }
           }
-          const probe = await waitForCodexProbe(session);
+          // Give each new document a short probe, then revisit it promptly.
+          // A slow shell must not block every other target for 1.8 seconds.
+          const probe = await waitForCodexProbe(session, 200);
           if (!probe?.codex) {
             await removeEarlyPayload(session, earlyScriptId);
             if (probe?.excludedPetSurface && !await cleanupExcludedSurface(session)) {
               throw new Error("Excluded Pet surface cleanup did not verify");
             }
-            rejectTarget(target, 5000);
+            if (probe?.excludedPetSurface) {
+              targetInitializationDeadlines.delete(target.id);
+              rejectTarget(target, 5000);
+            } else deferInitializingTarget(target);
             session.close();
             continue;
           }
@@ -2270,6 +2322,7 @@ async function runWatch(options) {
           sessions.set(target.id, session);
           if (earlyScriptId) earlyScripts.set(target.id, earlyScriptId);
           targetFailures.delete(target.id);
+          targetInitializationDeadlines.delete(target.id);
           diagnostics.log(`[dream-skin] injected target ${target.id}`);
         } catch (error) {
           await removeEarlyPayload(session, earlyScriptId);
@@ -2280,7 +2333,9 @@ async function runWatch(options) {
           rejectTarget(target, 2500, error);
         }
       }
-      await new Promise((resolve) => setTimeout(resolve, 1200));
+      const awaitingFirstPaint = [...targetInitializationDeadlines.values()]
+        .some((deadline) => Date.now() < deadline);
+      await new Promise((resolve) => setTimeout(resolve, awaitingFirstPaint ? 250 : 1200));
     }
   } finally {
     identityAnchor.close();

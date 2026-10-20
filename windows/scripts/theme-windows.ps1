@@ -695,8 +695,14 @@ function Set-DreamSkinActiveTheme {
     Assert-DreamSkinNoReparseComponents -Path $temporary
     Copy-Item -LiteralPath $source -Destination $temporary -Force
     Assert-DreamSkinNoReparseComponents -Path $temporary
-    Assert-DreamSkinImageFile -Path $temporary
-    Assert-DreamSkinVideoDecodable -Path $temporary -StateRoot $StateRoot
+    if ($extension -eq '.mp4') {
+      # The decode validator already enforces file/metadata limits before
+      # checking a real frame in the verified browser. Avoid a duplicate
+      # metadata-helper invocation for this same staged copy.
+      Assert-DreamSkinVideoDecodable -Path $temporary -StateRoot $StateRoot
+    } else {
+      Assert-DreamSkinImageFile -Path $temporary
+    }
     Move-Item -LiteralPath $temporary -Destination $target -Force
     Assert-DreamSkinNoReparseComponents -Path $target
     Assert-DreamSkinImageFile -Path $target -SkipImageMetadata

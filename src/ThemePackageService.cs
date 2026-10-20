@@ -46,7 +46,7 @@ namespace CodexDreamSkinManager
         {
             string fullPackage = Path.GetFullPath(packagePath);
             if (!File.Exists(fullPackage)) throw new FileNotFoundException("主题包不存在。", fullPackage);
-            if (new FileInfo(fullPackage).Length > MaxPackageBytes) throw new InvalidDataException("主题包超过 160 MiB。 ");
+            if (new FileInfo(fullPackage).Length > MaxPackageBytes) throw new InvalidDataException("主题包超过 160 兆字节。 ");
             string fullRoot = Path.GetFullPath(extractionRoot);
             AssertNoReparsePoint(fullRoot);
             Directory.CreateDirectory(fullRoot);
@@ -56,7 +56,7 @@ namespace CodexDreamSkinManager
             using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Read))
             {
                 if (archive.Entries.Count < 2 || archive.Entries.Count > 4)
-                    throw new InvalidDataException("主题包只能包含清单、主题图片及可选的 CSS/LICENSE。 ");
+                    throw new InvalidDataException("主题包只能包含清单、主题图片及可选的样式和授权说明。 ");
                 long expanded = 0;
                 ZipArchiveEntry manifestEntry = null;
                 HashSet<string> seenEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -66,7 +66,7 @@ namespace CodexDreamSkinManager
                     if (!seenEntries.Add(entry.FullName))
                         throw new InvalidDataException("主题包包含重复文件名。 ");
                     expanded += entry.Length;
-                    if (expanded > MaxExpandedBytes) throw new InvalidDataException("主题包解压后超过 192 MiB。 ");
+                    if (expanded > MaxExpandedBytes) throw new InvalidDataException("主题包解压后超过 192 兆字节。 ");
                     if (string.Equals(entry.FullName, "manifest.json", StringComparison.OrdinalIgnoreCase))
                     {
                         if (manifestEntry != null) throw new InvalidDataException("主题包包含重复清单。 ");
@@ -74,7 +74,7 @@ namespace CodexDreamSkinManager
                     }
                 }
                 if (manifestEntry == null || manifestEntry.Length > 1024 * 1024)
-                    throw new InvalidDataException("主题包缺少有效 manifest.json。 ");
+                    throw new InvalidDataException("主题包缺少有效的清单文件。 ");
                 Dictionary<string, object> manifest = ReadManifest(manifestEntry);
                 ThemePackageData data = ParseManifest(manifest);
                 string imageName = ReadString(manifest, "image", "");
@@ -94,12 +94,12 @@ namespace CodexDreamSkinManager
                 long maxMediaBytes = isVideo ? MaxVideoBytes : MaxImageBytes;
                 if (imageEntry == null || imageEntry.Length < 1 || imageEntry.Length > maxMediaBytes)
                     throw new InvalidDataException(isVideo
-                        ? "主题包视频缺失、为空或超过 128 MiB。 "
-                        : "主题包图片缺失、为空或超过 128 MiB。 ");
+                        ? "主题包视频缺失、为空或超过 128 兆字节。 "
+                        : "主题包图片缺失、为空或超过 128 兆字节。 ");
                 if (cssEntry != null && (cssEntry.Length < 1 || cssEntry.Length > 256 * 1024))
-                    throw new InvalidDataException("主题包 theme.css 为空或超过 256 KB。 ");
+                    throw new InvalidDataException("主题样式文件为空或超过 256 千字节。 ");
                 if (licenseEntry != null && (licenseEntry.Length < 1 || licenseEntry.Length > 64 * 1024))
-                    throw new InvalidDataException("主题包 LICENSE.txt 为空或超过 64 KB。 ");
+                    throw new InvalidDataException("主题授权说明为空或超过 64 千字节。 ");
 
                 string targetDirectory = Path.Combine(fullRoot, "cdskin-" + Guid.NewGuid().ToString("N"));
                 AssertNoReparsePoint(targetDirectory);
@@ -154,8 +154,8 @@ namespace CodexDreamSkinManager
             long maxMediaBytes = extension == ".mp4" ? MaxVideoBytes : MaxImageBytes;
             if (imageInfo.Length < 1 || imageInfo.Length > maxMediaBytes)
                 throw new InvalidDataException(extension == ".mp4"
-                    ? "导出主题视频为空或超过 128 MiB。 "
-                    : "导出主题图片为空或超过 128 MiB。 ");
+                    ? "导出主题视频为空或超过 128 兆字节。 "
+                    : "导出主题图片为空或超过 128 兆字节。 ");
             string imageName = "art" + extension;
             string safeCssSource = string.IsNullOrWhiteSpace(data.SafeCssPath) ? "" : Path.GetFullPath(data.SafeCssPath);
             string licenseSource = string.IsNullOrWhiteSpace(data.LicensePath) ? "" : Path.GetFullPath(data.LicensePath);
@@ -221,7 +221,7 @@ namespace CodexDreamSkinManager
                 {
                     FileAttributes attributes = File.GetAttributes(current);
                     if ((attributes & FileAttributes.ReparsePoint) != 0)
-                        throw new InvalidDataException("主题包目录不能是链接或 reparse point。 ");
+                        throw new InvalidDataException("主题包目录不能使用链接文件夹。 ");
                 }
                 DirectoryInfo parent = Directory.GetParent(current);
                 current = parent == null ? null : parent.FullName;
@@ -241,13 +241,13 @@ namespace CodexDreamSkinManager
             string json;
             using (StreamReader reader = new StreamReader(entry.Open(), Encoding.UTF8, true)) json = reader.ReadToEnd();
             try { return new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(json); }
-            catch (Exception ex) { throw new InvalidDataException("manifest.json 不是有效 JSON。", ex); }
+            catch (Exception ex) { throw new InvalidDataException("主题清单的数据格式无效。", ex); }
         }
 
         private static ThemePackageData ParseManifest(Dictionary<string, object> manifest)
         {
             if (manifest == null || ReadInt(manifest, "formatVersion") != 1)
-                throw new InvalidDataException("主题包 formatVersion 必须为 1。 ");
+                throw new InvalidDataException("当前管理器不支持此主题包格式版本。 ");
             Dictionary<string, object> art = ReadObject(manifest, "art");
             Dictionary<string, object> palette = ReadObject(manifest, "palette");
             ThemePackageData data = new ThemePackageData();

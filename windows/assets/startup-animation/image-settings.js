@@ -53,8 +53,8 @@
     });
   }
   async function importImage(file,kind){
-    if(file.size>30*1024*1024)throw new Error('请选择小于 30 MB 的图片。');
-    if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('请选择 PNG、JPEG 或 WebP 图片。');
+    if(file.size>30*1024*1024)throw new Error('请选择小于 30 兆字节的图片。');
+    if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('这种图片格式暂不支持，请选择常用格式的静态图片。');
     const url=URL.createObjectURL(file),img=new Image();
     try{
       img.src=url;await img.decode();
@@ -70,7 +70,7 @@
       const contours=vectorize(smallCtx.getImageData(0,0,768,512).data,768,512);
       if(!contours.length)throw new Error('图片轮廓太少，请选择边缘更清晰的背景。');
       return {artwork:image,contours};
-    }catch(error){throw new Error(error.message||'图片无法读取，请换一张图片。');}
+    }catch(error){throw new Error(/[\u3400-\u9fff]/.test(error?.message||'')?error.message:'图片无法读取，请换一张图片。');}
     finally{URL.revokeObjectURL(url);}
   }
   scope.imageSettings={load:()=>database('read'),save:images=>database('write',images),importImage};

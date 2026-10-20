@@ -76,11 +76,12 @@ namespace CodexDreamSkinManager
             {
                 ProcessStartInfo info = new ProcessStartInfo();
                 string completionMarker = "__DREAM_SKIN_COMPLETE_" + Guid.NewGuid().ToString("N") + "__";
-                string operation = Path.GetFileName(scriptPath);
+                string action = "";
                 for (int index = 0; index + 1 < arguments.Count; index++)
                     if (arguments[index] != null && arguments[index + 1] != null &&
                         arguments[index].IsParameter && arguments[index].Text == "-Action")
-                        operation += " / " + arguments[index + 1].Text;
+                        action = arguments[index + 1].Text;
+                string operation = UserMessages.Operation(Path.GetFileName(scriptPath), action);
                 info.FileName = "powershell.exe";
                 info.Arguments = BuildArguments(scriptPath, arguments, completionMarker);
                 info.UseShellExecute = false;

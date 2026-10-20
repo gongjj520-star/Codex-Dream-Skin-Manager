@@ -43,7 +43,7 @@ try {
   } else {
     $notify.Icon = [System.Drawing.SystemIcons]::Application
   }
-  $notify.Text = 'Codex Dream Skin'
+  $notify.Text = 'Codex 梦幻皮肤管理器'
   $notify.Visible = $true
   $menu = [System.Windows.Forms.ContextMenuStrip]::new()
   $notify.ContextMenuStrip = $menu
@@ -51,8 +51,8 @@ try {
   function Show-DreamSkinTrayError {
     param([string]$Message)
     [void][System.Windows.Forms.MessageBox]::Show(
-      $Message,
-      'Codex Dream Skin',
+      (ConvertTo-DreamSkinDisplayMessage -Message $Message),
+      'Codex 梦幻皮肤管理器',
       [System.Windows.Forms.MessageBoxButtons]::OK,
       [System.Windows.Forms.MessageBoxIcon]::Error
     )
@@ -109,8 +109,6 @@ try {
       (Get-DreamSkinTrayText -Key 'Language')
     )
     foreach ($option in @(
-      @{ Value = 'system'; Label = (Get-DreamSkinTrayText -Key 'LanguageSystem') },
-      @{ Value = 'en-US'; Label = (Get-DreamSkinTrayText -Key 'LanguageEnglish') },
       @{ Value = 'zh-CN'; Label = (Get-DreamSkinTrayText -Key 'LanguageChinese') }
     )) {
       $optionValue = $option.Value
@@ -145,7 +143,7 @@ try {
     $shortcut.TargetPath = $powershell
     $shortcut.Arguments = "-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File `"$PSScriptRoot\tray-dream-skin.ps1`""
     $shortcut.WorkingDirectory = $SkillRoot
-    $shortcut.Description = 'Start Codex Dream Skin in the notification area'
+    $shortcut.Description = '在通知区域启动 Codex 梦幻皮肤管理器'
     $shortcut.Save()
   }
 
@@ -181,7 +179,7 @@ try {
         $null = Show-DreamSkinOperationUi -Session $session -Phase finish -Token $begin.Token `
           -UiState success -Message (Get-DreamSkinTrayText -Key 'ApplyStarted') -TimeoutMs 1500
       }
-      $notify.ShowBalloonTip(1800, 'Codex Dream Skin', (Get-DreamSkinTrayText -Key 'Applying'), [System.Windows.Forms.ToolTipIcon]::Info)
+      $notify.ShowBalloonTip(1800, 'Codex 梦幻皮肤管理器', (Get-DreamSkinTrayText -Key 'Applying'), [System.Windows.Forms.ToolTipIcon]::Info)
     }
     # Match macOS menubar: pause = mark + live remove; resume lets the serialized
     # start path clear pause only after its safety checks and any restart consent.
@@ -201,7 +199,7 @@ try {
         }
         $notify.ShowBalloonTip(
           1800,
-          'Codex Dream Skin',
+          'Codex 梦幻皮肤管理器',
           (Get-DreamSkinTrayText -Key 'Reapplying'),
           [System.Windows.Forms.ToolTipIcon]::Info
         )
@@ -225,7 +223,7 @@ try {
           [System.Windows.Forms.ToolTipIcon]::Warning
         }
         $removalMessage = $removal.Message
-        $notify.ShowBalloonTip(2800, 'Codex Dream Skin', $removalMessage, $icon)
+        $notify.ShowBalloonTip(2800, 'Codex 梦幻皮肤管理器', $removalMessage, $icon)
         if (-not $removal.Removed -and $removal.Attempted) {
           Show-DreamSkinTrayError -Message $removalMessage
         }
@@ -243,7 +241,7 @@ try {
               -StateRoot $StateRoot
             Set-DreamSkinPaused -Paused $false -StateRoot $StateRoot | Out-Null
           }
-          $notify.ShowBalloonTip(1800, 'Codex Dream Skin', (Get-DreamSkinTrayText -Key 'BackgroundUpdated'), [System.Windows.Forms.ToolTipIcon]::Info)
+          $notify.ShowBalloonTip(1800, 'Codex 梦幻皮肤管理器', (Get-DreamSkinTrayText -Key 'BackgroundUpdated'), [System.Windows.Forms.ToolTipIcon]::Info)
         }
       } finally {
         $dialog.Dispose()
@@ -252,7 +250,7 @@ try {
     $null = Add-DreamSkinTrayItem -Items $menu.Items -Text (Get-DreamSkinTrayText -Key 'ImportZip') -Action {
       $dialog = [System.Windows.Forms.OpenFileDialog]::new()
       $dialog.Title = Get-DreamSkinTrayText -Key 'ImportTitle'
-      $dialog.Filter = 'Dream Skin theme ZIP|*.zip'
+      $dialog.Filter = '梦幻皮肤主题压缩包|*.zip'
       $dialog.Multiselect = $false
       try {
         if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
@@ -283,7 +281,7 @@ try {
           } else {
             [System.Windows.Forms.ToolTipIcon]::Info
           }
-          $notify.ShowBalloonTip(4200, 'Codex Dream Skin', $message, $messageIcon)
+          $notify.ShowBalloonTip(4200, 'Codex 梦幻皮肤管理器', $message, $messageIcon)
         }
       } finally {
         $dialog.Dispose()
@@ -301,7 +299,7 @@ try {
         }
         $notify.ShowBalloonTip(
           1800,
-          'Codex Dream Skin',
+          'Codex 梦幻皮肤管理器',
           (Get-DreamSkinTrayText -Key 'Saved' -FormatArguments @($saved.Theme.name)),
           [System.Windows.Forms.ToolTipIcon]::Info
         )
@@ -329,7 +327,7 @@ try {
           }
           $notify.ShowBalloonTip(
             1800,
-            'Codex Dream Skin',
+            'Codex 梦幻皮肤管理器',
             (Get-DreamSkinTrayText -Key 'Applied' -FormatArguments @($savedName)),
             [System.Windows.Forms.ToolTipIcon]::Info
           )

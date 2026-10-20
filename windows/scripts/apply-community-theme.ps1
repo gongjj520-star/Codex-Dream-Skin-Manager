@@ -30,8 +30,8 @@ function Show-DreamSkinCommunityMessage {
     [System.Windows.Forms.MessageBoxIcon]::Information
   }
   [void][System.Windows.Forms.MessageBox]::Show(
-    $Message,
-    'Codex Dream Skin',
+    $(if ($Kind -eq 'Error') { ConvertTo-DreamSkinDisplayMessage -Message $Message } else { $Message }),
+    'Codex 梦幻皮肤管理器',
     [System.Windows.Forms.MessageBoxButtons]::OK,
     $icon
   )

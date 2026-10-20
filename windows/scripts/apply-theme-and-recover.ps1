@@ -69,8 +69,16 @@ try {
   $env:CODEX_DREAM_SKIN_RECOVERY_LOCK_HELD = '1'
   $common = @('-SkillRoot', $SkillRoot, '-StateRoot', $StateRoot)
   try {
-    $status = (Invoke-RecoveryManager -Arguments (@('-Action', 'Status') + $common)) |
+    # The selected theme is verified by startup below; do not wait for the old
+    # renderer to pass before replacing or recovering that very theme.
+    $status = (Invoke-RecoveryManager -Arguments (@('-Action', 'Status', '-Quick') + $common)) |
       ConvertFrom-Json -ErrorAction Stop
+    if ("$($status.statusKind)" -ieq 'uninspectable') {
+      # Full status can confirm a healthy renderer when Windows hides a
+      # packaged Node identity. Do not turn that into an unnecessary restart.
+      $status = (Invoke-RecoveryManager -Arguments (@('-Action', 'Status') + $common)) |
+        ConvertFrom-Json -ErrorAction Stop
+    }
   } catch {
     throw "Cannot safely inspect Dream Skin before recovery: $($_.Exception.Message)"
   }

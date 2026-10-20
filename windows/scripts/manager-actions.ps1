@@ -64,7 +64,7 @@ if ($TagsJson) {
     }
     $Tags = @($parsedTags | ForEach-Object { "$_" })
   } catch {
-    throw '主题标签 JSON 无效。'
+    throw '主题标签数据无效。'
   }
 }
 $scripts = Join-Path $SkillRoot 'scripts'
@@ -180,10 +180,10 @@ function Read-ManagerPresetCatalog {
   if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) { return $null }
   Assert-DreamSkinNoReparseComponents -Path $catalogPath
   try { $catalog = (Read-DreamSkinUtf8File -Path $catalogPath) | ConvertFrom-Json -ErrorAction Stop } catch {
-    throw '内置主题目录不是有效 JSON。'
+    throw '内置主题列表数据无效。'
   }
   if ($null -eq $catalog -or $catalog -is [string] -or $catalog -is [array] -or "$($catalog.schemaVersion)" -ne '1') {
-    throw '内置主题目录 schemaVersion 必须为 1。'
+    throw '当前管理器不支持此内置主题列表格式。'
   }
   $entries = @($catalog.themes)
   if ($entries.Count -lt 1 -or $entries.Count -gt 100) { throw '内置主题目录必须包含 1 到 100 项。' }
@@ -793,10 +793,10 @@ function Read-ManagerBatchRequest {
   if (-not (Test-DreamSkinThemePathWithin -Path $fullPath -Root $requestsRoot) -or
     -not (Test-Path -LiteralPath $fullPath -PathType Leaf)) { throw '批量导入请求必须位于受管 requests 目录。' }
   try { $request = (Read-DreamSkinUtf8File -Path $fullPath) | ConvertFrom-Json -ErrorAction Stop } catch {
-    throw '批量导入请求不是有效 JSON。'
+    throw '批量导入请求的数据格式无效。'
   }
   if ($null -eq $request -or $request -is [string] -or $request -is [array] -or "$($request.schemaVersion)" -ne '1') {
-    throw '批量导入请求 schemaVersion 必须为 1。'
+    throw '当前管理器不支持此批量导入请求格式。'
   }
   $items = @($request.items)
   if ($items.Count -lt 1 -or $items.Count -gt 50) { throw '批量导入一次只能包含 1 到 50 项。' }
@@ -890,19 +890,24 @@ function Remove-ManagerDuplicateImageArchives {
 function Get-ManagerInjectorStatus {
   param([AllowNull()][object]$State)
   if ($null -eq $State) {
-    return [pscustomobject]@{ Kind = 'stopped'; Message = '未检测到皮肤注入器。'; Running = $false }
+    return [pscustomobject]@{ Kind = 'stopped'; Message = '皮肤服务尚未运行。'; Running = $false }
   }
   if (-not $State.injectorPid) {
     if ($State.connectionOnly -is [bool] -and $State.connectionOnly) {
       return [pscustomobject]@{ Kind = 'stopped'; Message = 'Codex 已连接，皮肤尚未启用。'; Running = $false }
     }
-    return [pscustomobject]@{ Kind = 'stale'; Message = '状态文件缺少注入器进程编号。'; Running = $false }
+    return [pscustomobject]@{ Kind = 'stale'; Message = '上次皮肤服务的状态记录不完整。'; Running = $false }
   }
 
   $processId = [int]$State.injectorPid
   $visibleProcess = Get-Process -Id $processId -ErrorAction SilentlyContinue
   if (-not $visibleProcess) {
-    return [pscustomobject]@{ Kind = 'stale'; Message = "记录的注入器进程已不存在（PID $processId）。"; Running = $false }
+    return [pscustomobject]@{
+      Kind = 'stale'
+      Message = "上次皮肤服务已结束（进程编号 $processId）。"
+      Running = $false
+      ProcessEnded = $true
+    }
   }
   # A restart can reuse the old injector's PID for an unrelated process.
   # A readable, different start time proves the saved watcher has ended; it
@@ -913,14 +918,15 @@ function Get-ManagerInjectorStatus {
       -not (Test-DreamSkinTimestampEqual -Left $currentStartedAt -Right $State.injectorStartedAt)) {
       return [pscustomobject]@{
         Kind = 'stale'
-        Message = "原皮肤注入器已结束，PID $processId 已由其他进程使用；可重新应用皮肤。"
+        Message = "上次皮肤服务已结束，进程编号 $processId 已被其他程序使用；可重新应用皮肤。"
         Running = $false
+        ProcessEnded = $true
       }
     }
   }
   $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -OperationTimeoutSec 3 -ErrorAction SilentlyContinue
   if (-not $process) {
-    return [pscustomobject]@{ Kind = 'uninspectable'; Message = "进程存在，但系统不允许核验其命令行（PID $processId）。"; Running = $false }
+    return [pscustomobject]@{ Kind = 'uninspectable'; Message = "皮肤服务的进程仍在，但系统不允许核实身份（进程编号 $processId）。"; Running = $false }
   }
 
   $expectedInjector = if ($State.injectorPath) {
@@ -957,11 +963,11 @@ function Get-ManagerInjectorStatus {
     if ($continuity) {
       return [pscustomobject]@{
         Kind = 'running'
-        Message = "皮肤注入器正在运行（PID $processId；Windows 未提供进程路径，已依据启动时间确认）。"
+        Message = "皮肤服务正在运行（进程编号 $processId；已根据启动时间确认）。"
         Running = $true
       }
     }
-    return [pscustomobject]@{ Kind = 'uninspectable'; Message = "无法核验注入器进程身份（PID $processId）。"; Running = $false }
+    return [pscustomobject]@{ Kind = 'uninspectable'; Message = "无法核实皮肤服务的进程身份（进程编号 $processId）。"; Running = $false }
   }
 
   $matches = [System.IO.Path]::GetFileName("$processPath") -ieq 'node.exe'
@@ -985,12 +991,12 @@ function Get-ManagerInjectorStatus {
       (Test-DreamSkinTimestampEqual -Left $startedAt -Right $State.injectorStartedAt)
   }
   if (-not $matches) {
-    return [pscustomobject]@{ Kind = 'mismatch'; Message = "PID $processId 存在，但不是记录的 Dream Skin 注入器。"; Running = $false }
+    return [pscustomobject]@{ Kind = 'mismatch'; Message = "进程编号 $processId 存在，但与上次皮肤服务不一致。"; Running = $false }
   }
   if (-not $State.runtimeFingerprint) {
-    return [pscustomobject]@{ Kind = 'uninspectable'; Message = '状态文件缺少运行时指纹，无法确认注入器版本。'; Running = $false }
+    return [pscustomobject]@{ Kind = 'uninspectable'; Message = '状态记录不完整，无法确认皮肤服务的版本。'; Running = $false }
   }
-  return [pscustomobject]@{ Kind = 'running'; Message = "皮肤注入器正在运行（PID $processId）。"; Running = $true }
+  return [pscustomobject]@{ Kind = 'running'; Message = "皮肤服务正在运行（进程编号 $processId）。"; Running = $true }
 }
 
 function Invoke-ManagerLiveApplyIfRunning {
@@ -1020,7 +1026,7 @@ function Get-ManagerImageMetadata {
   $output = @(& $node.Path $metadataScript '--check' $fullPath 2>&1)
   if ($LASTEXITCODE -ne 0) {
     if ($format -eq 'mp4') {
-      throw 'MP4 验证失败：仅支持标准非分片 H.264/AVC 或 H.265/HEVC MP4，且视频不能超过 60 秒、60 FPS 或 128 MiB。'
+      throw '视频验证失败：请选择常见编码的普通视频文件，时长不超过 60 秒、帧率不超过每秒 60 帧、大小不超过 128 兆字节。'
     }
     throw '背景文件验证失败：文件已损坏，或超过图片/视频安全限制。'
   }
@@ -1039,8 +1045,8 @@ function Get-ManagerImageMetadata {
     frameCount = [int]$metadata.frameCount
     canPreview = $canPreview
     previewMessage = if ($format -eq 'mp4') {
-      '管理器显示 MP4 静态封面；视频会在 Codex 中静音循环播放。'
-    } elseif ($canPreview) { '' } else { 'WebP 可以保存并应用，但当前 WPF 预览器可能无法显示。' }
+      '管理器显示视频封面；视频会在 Codex 中静音循环播放。'
+    } elseif ($canPreview) { '' } else { '这种图片可以保存并应用，但当前管理器可能无法预览。' }
   }
 }
 
@@ -1281,9 +1287,33 @@ switch ($Action) {
     $rendererAppliedVerified = $false
     $statusKind = if ($identity.Running -and $paused) { 'paused' } else { $identity.Kind }
     $statusMessage = $identity.Message
+    # A saved watcher that has ended, with no listener on its recorded port,
+    # is a normal stopped session after reboot. Do not probe/reapply its MP4
+    # before Codex exists to validate frames. Occupied ports, unknown process
+    # identities and failed listener inspection keep their recovery diagnostics.
+    $sessionEndedWithoutEndpoint = $false
+    if ($identity.Kind -eq 'stale' -and $identity.ProcessEnded -eq $true -and
+        $state -and $state.port) {
+      try {
+        # Enumerate successfully before deciding absence. The launch helper's
+        # per-port query intentionally suppresses errors and cannot prove that
+        # a failed inspection means the saved listener is absent.
+        $tcpListeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop)
+        $sessionEndedWithoutEndpoint = @($tcpListeners | Where-Object {
+          [int]$_.LocalPort -eq [int]$state.port
+        }).Count -eq 0
+      } catch { $sessionEndedWithoutEndpoint = $false }
+    }
+    if ($sessionEndedWithoutEndpoint) {
+      $statusKind = 'stopped'
+      $statusMessage = '上次皮肤会话已结束，点击“应用皮肤”即可启动。'
+      $rendererStatus = 'unavailable'
+      $rendererMessage = 'Codex 尚未连接皮肤运行时。'
+    }
     # A dead/outdated watcher does not remove the CSS already in Codex. Probe
     # the recorded browser independently without adopting an unverified PID.
-    if (-not $Quick -and ($identity.Running -or ($state -and $state.port -and $state.browserId))) {
+    if (-not $Quick -and -not $sessionEndedWithoutEndpoint -and
+        ($identity.Running -or ($state -and $state.port -and $state.browserId))) {
       try {
         $renderer = Get-DreamSkinLiveRendererStatus -StateRoot $StateRoot -Paused $paused
       } catch {
@@ -1366,6 +1396,7 @@ switch ($Action) {
   'ApplyTheme' {
     Invoke-ManagerWriteLock {
       Initialize-DreamSkinThemeStore -SkillRoot $SkillRoot -StateRoot $StateRoot -PrepareOnly | Out-Null
+      $createdImageArchive = $false
       if ($ThemeDirectory) {
         $result = Use-DreamSkinSavedTheme -ThemeDirectory $ThemeDirectory -StateRoot $StateRoot
       } elseif ($ImagePath) {
@@ -1377,14 +1408,18 @@ switch ($Action) {
           $presetTheme = ConvertTo-ManagerPresetThemeContract -Preset $preset
           $presetName = if ($preset.name) { "$($preset.name)" } else { $Name }
           $result = Set-DreamSkinActiveTheme -ImagePath $ImagePath -Theme $presetTheme `
-            -Name $presetName -StateRoot $StateRoot
+            -Name $presetName -SkipImageArchive -StateRoot $StateRoot
         } else {
           $result = Set-DreamSkinActiveTheme -ImagePath $ImagePath `
             -Theme (New-ManagerCustomTheme -ThemeName $Name) -Name $Name -StateRoot $StateRoot
+          $createdImageArchive = $true
         }
-      } else { throw 'ApplyTheme requires ThemeDirectory or ImagePath.' }
+      } else { throw '请先选择主题或背景文件，再应用皮肤。' }
       Set-DreamSkinPaused -Paused $false -StateRoot $StateRoot | Out-Null
-      Remove-ManagerDuplicateImageArchives
+      # Presets and saved themes already retain their source artwork. Do not
+      # create a second video archive or rehash the entire media library for
+      # those switches. Raw custom media keeps its existing archive behavior.
+      if ($createdImageArchive) { Remove-ManagerDuplicateImageArchives }
       $rendererApplied = if ($DeferLiveApply) { $false } else { Invoke-ManagerLiveApplyIfRunning }
       [ordered]@{
         id = if ($result.Theme.id) { "$($result.Theme.id)" } else { '' }

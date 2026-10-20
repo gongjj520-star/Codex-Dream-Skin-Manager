@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [switch]$Json,
   [switch]$Interactive,
@@ -31,11 +31,11 @@ function ConvertTo-DreamSkinVersion {
     $normalized = $normalized.Substring(1)
   }
   if ($normalized -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
-    throw "Invalid release version: $Value"
+    throw "发布版本号无效：$Value"
   }
   $parsed = $null
   if (-not [version]::TryParse($normalized, [ref]$parsed)) {
-    throw "Invalid release version: $Value"
+    throw "发布版本号无效：$Value"
   }
   return $parsed
 }
@@ -51,7 +51,7 @@ function Assert-DreamSkinReleaseAssetUrl {
   if (-not [uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$uri) -or
     $uri.Scheme -cne 'https' -or $uri.Host -cne 'github.com' -or
     $uri.AbsolutePath -cne $expectedPath -or $uri.Query -or $uri.Fragment) {
-    throw "Release asset is not an exact GitHub release URL: $AssetName"
+    throw "更新文件的下载地址与发布仓库不匹配：$AssetName"
   }
 }
 
@@ -64,7 +64,7 @@ function Get-DreamSkinReleaseAsset {
   )
   $assets = @($Release.assets | Where-Object { "$($_.name)" -ceq $Name })
   if ($assets.Count -ne 1) {
-    throw "The release must contain exactly one $Label asset named '$Name'."
+    throw "发布文件缺失或重复：$Name"
   }
   $url = "$($assets[0].browser_download_url)"
   Assert-DreamSkinReleaseAssetUrl -Url $url -Tag $Tag -AssetName $Name
@@ -72,7 +72,7 @@ function Get-DreamSkinReleaseAsset {
   if ($null -ne $Release.PSObject.Properties['schemaVersion']) {
     $sha256 = "$($assets[0].sha256)"
     if ($sha256 -cnotmatch '^[0-9a-f]{64}$') {
-      throw "The update manifest contains an invalid SHA-256 for '$Name'."
+      throw "更新信息中的文件校验值无效：$Name"
     }
   }
   return [pscustomobject]@{ Name = $Name; Url = $url; Sha256 = $sha256 }
@@ -84,15 +84,15 @@ function ConvertTo-DreamSkinUpdateResult {
     [Parameter(Mandatory = $true)][string]$CurrentVersionText
   )
   $current = ConvertTo-DreamSkinVersion -Value $CurrentVersionText
-  if (-not $Release.tag_name) { throw 'GitHub did not return a release tag.' }
+  if (-not $Release.tag_name) { throw '发布仓库没有返回版本号。' }
   $tag = "$($Release.tag_name)"
   $latest = ConvertTo-DreamSkinVersion -Value $tag
   $normalizedTag = 'v' + $latest.ToString()
   if ($tag -cne $normalizedTag) {
-    throw "GitHub returned a non-canonical release tag: $tag"
+    throw "发布仓库返回的版本号格式不正确：$tag"
   }
-  if ($Release.draft -eq $true) { throw 'GitHub returned a draft release.' }
-  if ($Release.prerelease -eq $true) { throw 'GitHub returned a prerelease.' }
+  if ($Release.draft -eq $true) { throw '该版本尚为草稿，暂不能更新。' }
+  if ($Release.prerelease -eq $true) { throw '该版本为预览版，暂不作为正式更新。' }
 
   $releaseUrl = "$($Release.html_url)"
   $releaseUri = $null
@@ -100,7 +100,7 @@ function ConvertTo-DreamSkinUpdateResult {
   if (-not [uri]::TryCreate($releaseUrl, [UriKind]::Absolute, [ref]$releaseUri) -or
     $releaseUri.Scheme -cne 'https' -or $releaseUri.Host -cne 'github.com' -or
     $releaseUri.AbsolutePath -cne $expectedReleasePath -or $releaseUri.Query -or $releaseUri.Fragment) {
-    throw 'GitHub returned an invalid release page URL.'
+    throw '发布仓库返回的版本页面地址无效。'
   }
 
   $updateAvailable = $latest -gt $current
@@ -143,14 +143,14 @@ function Get-DreamSkinExpectedChecksum {
     if ([string]::IsNullOrWhiteSpace($line)) { continue }
     $entry = [regex]::Match($line, '^([0-9A-Fa-f]{64}) [ *](.+)$')
     if (-not $entry.Success) {
-      throw 'The release checksum manifest contains a malformed non-empty line.'
+      throw '发布文件校验清单的格式不正确。'
     }
     if ($entry.Groups[2].Value -ceq $AssetName) {
       $matches.Add($entry.Groups[1].Value.ToLowerInvariant())
     }
   }
   if ($matches.Count -ne 1) {
-    throw "The release checksum manifest must contain exactly one checksum for '$AssetName'."
+    throw "更新文件的校验信息缺失或重复：$AssetName"
   }
   return $matches[0]
 }
@@ -161,21 +161,21 @@ function Assert-DreamSkinInstallerChecksum {
     [Parameter(Mandatory = $true)][string]$ExpectedHash
   )
   if ($ExpectedHash -cnotmatch '^[0-9a-f]{64}$') {
-    throw 'The expected installer checksum is invalid.'
+    throw '安装包预期的文件校验值无效。'
   }
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-    throw 'The downloaded installer is missing.'
+    throw '下载的安装包不存在，请重新下载。'
   }
   $item = Get-Item -LiteralPath $Path -Force
   if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-    throw 'The downloaded installer cannot be a reparse point.'
+    throw '下载的安装包不能是文件链接，请重新下载原始文件。'
   }
   if ($item.Length -le 0 -or $item.Length -gt $script:DreamSkinMaximumInstallerBytes) {
-    throw 'The downloaded installer size is outside the allowed range.'
+    throw '下载的安装包大小异常，请重新下载。'
   }
   $actualHash = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actualHash -cne $ExpectedHash) {
-    throw 'The downloaded installer checksum does not match the release manifest.'
+    throw '下载的安装包未通过完整性校验，请重新下载。'
   }
 }
 
@@ -186,7 +186,7 @@ function Assert-DreamSkinPlainDirectory {
   }
   $item = Get-Item -LiteralPath $Path -Force
   if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-    throw "The update directory cannot be a reparse point: $Path"
+    throw "更新目录不能使用链接文件夹：$Path"
   }
 }
 
@@ -208,18 +208,19 @@ function Get-DreamSkinLatestRelease {
     $response = Invoke-WebRequest -Uri $script:DreamSkinUpdateManifestUrl -Headers $headers `
       -Method Get -UseBasicParsing -TimeoutSec 12 -MaximumRedirection 5
   } catch {
-    throw "Could not download update.json. Please check for updates at $script:DreamSkinReleasePage . $($_.Exception.Message)"
+    $reason = ConvertTo-DreamSkinDisplayMessage -Message $_.Exception.Message
+    throw "无法获取更新信息，请检查网络后重试。也可访问发布页面：$script:DreamSkinReleasePage 。$reason"
   }
   if ($response.RawContentLength -le 0 -or $response.RawContentLength -gt 1MB) {
-    throw 'The update manifest size is outside the allowed range.'
+    throw '更新信息的文件大小异常。'
   }
   # Release attachments may be served as application/octet-stream.
   $content = $response.Content
   if ($content -is [byte[]]) { $content = [System.Text.Encoding]::UTF8.GetString($content) }
   $release = $content | ConvertFrom-Json
-  if ($release.schemaVersion -ne 1) { throw 'Unsupported update manifest schema.' }
+  if ($release.schemaVersion -ne 1) { throw '当前管理器不支持此更新信息格式。' }
   if ($release.draft -isnot [bool] -or $release.prerelease -isnot [bool]) {
-    throw 'The update manifest must declare its release status.'
+    throw '更新信息缺少正式发布状态。'
   }
   return $release
 }
@@ -229,11 +230,11 @@ function Install-DreamSkinUpdate {
     [Parameter(Mandatory = $true)][object]$Result,
     [string]$Expected = ''
   )
-  if (-not $Result.updateAvailable) { throw 'No newer release is available to install.' }
+  if (-not $Result.updateAvailable) { throw '当前已是最新版本，无需安装更新。' }
   if ($Expected) {
     $expectedParsed = ConvertTo-DreamSkinVersion -Value $Expected
     if (('v' + $expectedParsed.ToString()) -cne "$($Result.latestVersion)") {
-      throw "The latest release changed from $Expected to $($Result.latestVersion). Check for updates again."
+      throw "最新版本已从 $Expected 变为 $($Result.latestVersion)，请重新检查更新。"
     }
   }
 
@@ -253,19 +254,19 @@ function Install-DreamSkinUpdate {
     $checksumItem = Get-Item -LiteralPath $checksumPath -Force
     if (($checksumItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 -or
       $checksumItem.Length -le 0 -or $checksumItem.Length -gt $script:DreamSkinMaximumChecksumBytes) {
-      throw 'The release checksum manifest size or file type is invalid.'
+      throw '文件校验清单的大小或类型异常。'
     }
     $manifest = [System.IO.File]::ReadAllText($checksumItem.FullName, [System.Text.Encoding]::UTF8)
     $expectedHash = Get-DreamSkinExpectedChecksum -Manifest $manifest -AssetName $Result.installerAssetName
     if ($Result.installerSha256 -and $expectedHash -cne $Result.installerSha256) {
-      throw 'The installer checksum in update.json does not match SHA256SUMS.txt.'
+      throw '更新信息与文件校验清单中的安装包校验值不一致。'
     }
     Invoke-DreamSkinUpdateDownload -Url $Result.installerAssetUrl -Destination $installerDownload -TimeoutSeconds 180
     Assert-DreamSkinInstallerChecksum -Path $installerDownload -ExpectedHash $expectedHash
     Move-Item -LiteralPath $installerDownload -Destination $installerPath
     Assert-DreamSkinInstallerChecksum -Path $installerPath -ExpectedHash $expectedHash
     $process = Start-Process -FilePath $installerPath -WorkingDirectory $downloadRoot -PassThru
-    if ($null -eq $process -or $process.Id -le 0) { throw 'The verified installer could not be started.' }
+    if ($null -eq $process -or $process.Id -le 0) { throw '安装包已通过校验，但安装程序未能启动。' }
     $keepDownload = $true
     $Result.installerStarted = $true
     $Result.installerProcessId = $process.Id
@@ -302,7 +303,7 @@ function Confirm-DreamSkinInteractiveUpdate {
 
 function Invoke-DreamSkinUpdateMain {
   if (-not (Test-Path -LiteralPath $script:DreamSkinVersionPath -PathType Leaf)) {
-    throw "Installed version file is missing: $script:DreamSkinVersionPath"
+    throw "已安装版本的信息文件缺失：$script:DreamSkinVersionPath"
   }
   $currentText = ([System.IO.File]::ReadAllText($script:DreamSkinVersionPath)).Trim()
   $previousProtocol = [Net.ServicePointManager]::SecurityProtocol
@@ -317,7 +318,9 @@ function Invoke-DreamSkinUpdateMain {
     }
     if ($Json) { $result | ConvertTo-Json -Compress }
     if (-not $Json -and -not $Interactive) {
-      Write-Host "$($result.currentVersion) -> $($result.latestVersion); update=$($result.updateAvailable); started=$($result.installerStarted)"
+      $availability = if ($result.updateAvailable) { '有新版本' } else { '已是最新版本' }
+      $started = if ($result.installerStarted) { '安装程序已启动' } else { '安装程序未启动' }
+      Write-Host "当前版本 $($result.currentVersion)，最新版本 $($result.latestVersion)；$availability；$started"
     }
   } finally {
     [Net.ServicePointManager]::SecurityProtocol = $previousProtocol
@@ -336,7 +339,7 @@ if ($MyInvocation.InvocationName -ne '.') {
       Add-Type -AssemblyName System.Windows.Forms
       [void][System.Windows.Forms.MessageBox]::Show(
         ((Get-DreamSkinUpdateText -Key 'UpdateFailed') + [Environment]::NewLine +
-          [Environment]::NewLine + $_.Exception.Message),
+          [Environment]::NewLine + (ConvertTo-DreamSkinDisplayMessage -Message $_.Exception.Message)),
         (Get-DreamSkinUpdateText -Key 'UpdateTitle'),
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Warning

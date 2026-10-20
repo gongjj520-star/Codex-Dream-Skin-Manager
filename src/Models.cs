@@ -491,7 +491,7 @@ namespace CodexDreamSkinManager
         {
             if (string.IsNullOrWhiteSpace(value)) return "";
             if (!System.Text.RegularExpressions.Regex.IsMatch(value, "^#[0-9A-Fa-f]{6}$"))
-                throw new ArgumentException("强调色必须是 #RRGGBB 格式。");
+                throw new ArgumentException("强调色必须是六位颜色代码，例如 #FFB6C1。");
             return value.ToUpperInvariant();
         }
 
