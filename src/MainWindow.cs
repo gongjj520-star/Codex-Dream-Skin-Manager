@@ -214,7 +214,6 @@ namespace CodexDreamSkinManager
         private bool imageValidationRunning;
         private bool updateRunning;
         private bool startupUpdateCheckStarted;
-        private bool startupStatusRecoveryAttempted;
         private int imageValidationGeneration;
         private int statusRefreshCount;
         private bool suppressThemeSelection;
@@ -246,8 +245,9 @@ namespace CodexDreamSkinManager
             Loaded += async delegate
             {
                 UpdateThemeGridHeight();
+                // Opening the manager only observes the current session. Theme
+                // publication and watcher recovery require an explicit action.
                 await RefreshStatusAsync();
-                await TryRecoverStartupStatusAsync();
                 if (!windowClosed && service != null && service.CanManage) runtimeStatusTimer.Start();
                 if (!windowClosed && !startupUpdateCheckStarted)
                 {
@@ -971,95 +971,6 @@ namespace CodexDreamSkinManager
                 UpdateStatusDisplay(currentStatus);
                 UpdateActionState();
                 return "状态读取失败：" + ex.Message;
-            }
-        }
-
-        private async Task TryRecoverStartupStatusAsync()
-        {
-            if (startupStatusRecoveryAttempted || windowClosed || service == null || !service.CanManage)
-                return;
-            string kind = currentStatus == null ? "" : currentStatus.StatusKind;
-            if (kind != "stale" && kind != "mismatch" && kind != "uninspectable") return;
-            if (currentStatus == null || string.IsNullOrWhiteSpace(currentStatus.ActiveThemeId) ||
-                string.IsNullOrWhiteSpace(currentStatus.ActiveThemeImage)) return;
-            // A paused skin is an explicit user choice. Startup reconciliation
-            // must not clear its pause marker or silently resume the watcher.
-            if (currentStatus.IsPaused)
-            {
-                startupStatusRecoveryAttempted = true;
-                return;
-            }
-            if (operationRunning) return;
-
-            ThemeOption activeTheme = null;
-            foreach (ThemeOption candidate in allThemes)
-            {
-                if (candidate != null && string.Equals(candidate.Id, currentStatus.ActiveThemeId,
-                    StringComparison.OrdinalIgnoreCase))
-                {
-                    activeTheme = candidate;
-                    break;
-                }
-            }
-            if (activeTheme == null)
-            {
-                activeTheme = new ThemeOption {
-                    Id = currentStatus.ActiveThemeId,
-                    Name = currentStatus.ActiveThemeName,
-                    ImagePath = currentStatus.ActiveThemeImage,
-                    ThemeDirectory = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                        "CodexDreamSkin", "active-theme"),
-                    FocusX = currentStatus.ActiveFocusX,
-                    FocusY = currentStatus.ActiveFocusY,
-                    PositionX = currentStatus.ActivePositionX,
-                    PositionY = currentStatus.ActivePositionY,
-                    Zoom = currentStatus.ActiveZoom,
-                    PositionMode = currentStatus.ActivePositionMode,
-                    FramingEnabled = currentStatus.ActiveFramingEnabled
-                };
-            }
-
-            startupStatusRecoveryAttempted = true;
-            operationRunning = true;
-            operationStatusLabel = "正在重新连接当前皮肤...";
-            UpdateStatusDisplay(currentStatus);
-            UpdateActionState();
-            try
-            {
-                SetMessage("正在尝试重新连接当前皮肤...", false);
-                bool rendererApplied = await service.ApplyThemeAsync(activeTheme, false);
-                if (!rendererApplied)
-                {
-                    await RefreshStatusAsync(false, false);
-                    SetMessage("当前皮肤仍需恢复，请点击“应用皮肤”完成连接。", true);
-                    return;
-                }
-                // Reconcile the watcher once even when the one-shot live apply
-                // succeeded. ReconnectOnly refuses to launch Codex if its CDP
-                // endpoint disappeared during this best-effort startup repair.
-                await service.ReconnectOnlyAsync();
-                await RefreshStatusAsync(false, false);
-                if (currentStatus.StatusKind == "stale" || currentStatus.StatusKind == "mismatch" ||
-                    currentStatus.StatusKind == "uninspectable")
-                    SetMessage("当前皮肤仍需恢复，请点击“应用皮肤”完成连接。", true);
-                else
-                    SetMessage("已重新连接当前皮肤。", false);
-            }
-            catch (Exception ex)
-            {
-                // Startup repair is best effort. Keep the diagnostic status and
-                // leave explicit recovery available to the user.
-                SetMessage("状态需要恢复：" + ex.Message, true);
-                UpdateStatusDisplay(currentStatus);
-                UpdateActionState();
-            }
-            finally
-            {
-                operationRunning = false;
-                operationStatusLabel = "";
-                UpdateStatusDisplay(currentStatus);
-                UpdateActionState();
             }
         }
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -780,7 +780,7 @@ namespace CodexDreamSkinManager
                     typeof(MainWindow).GetMethod("UpdateStatusDisplay", BindingFlags.Instance | BindingFlags.NonPublic)
                         .Invoke(window, new object[] { degraded });
                     AssertEqual("状态需要恢复", GetPrivateField<TextBlock>(window, "statusText").Text);
-                    AssertEqual("renderer verification failed",
+                    AssertEqual("尚未确认皮肤显示成功，请刷新状态或重新应用。",
                         Convert.ToString(GetPrivateField<TextBlock>(window, "statusText").ToolTip));
                 }
                 finally { window.Close(); }

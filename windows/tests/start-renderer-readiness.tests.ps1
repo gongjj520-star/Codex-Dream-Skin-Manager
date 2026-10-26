@@ -2,6 +2,7 @@
 param([Parameter(Mandatory = $true)][string]$Root)
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $Root 'scripts\common-windows.ps1')
 . (Join-Path $Root 'scripts\localization-windows.ps1')
 $startPath = Join-Path $Root 'scripts\start-dream-skin.ps1'
 $source = [System.IO.File]::ReadAllText($startPath)
@@ -24,7 +25,8 @@ $source = $source.Replace(
   '$animationScript = Join-Path $PSScriptRoot ''play-startup-animation.mjs''',
   '$animationScript = Join-Path $StateRoot (''fixture-animation-disabled-'' + [guid]::NewGuid().ToString(''N'') + ''.mjs'')'
 )
-if ($source.Contains('$PSScriptRoot')) {
+$source = $source.Replace('$ConfigPath = Join-Path $HOME ''.codex\config.toml''', '$ConfigPath = Join-Path $StateRoot ''fixture-config.toml''')
+if ($source.Contains('$PSScriptRoot') -or $source.Contains('$HOME')) {
   throw 'Start readiness fixture left a real script-root dependency in the isolated source.'
 }
 
@@ -49,6 +51,24 @@ $script:appearanceRestoreCalls = 0
 $script:codexStopped = $false
 $script:codexStarted = $false
 
+# The launch and diagnostics stay simulated even on elevated CI workers.
+function Assert-DreamSkinStandardLaunchContext { }
+function New-DreamSkinStartupTrace { param([string]$StateRoot); return $null }
+function Write-DreamSkinStartupEvent {
+  param([object]$Trace, [string]$Stage, [hashtable]$Data, [string]$Outcome)
+}
+function Assert-DreamSkinNoReparseComponents {
+  param([string]$Path)
+  $fixtureBoundary = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'CodexDreamSkin')).TrimEnd('\') + '\'
+  if (-not [System.IO.Path]::GetFullPath($Path).StartsWith($fixtureBoundary, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Startup diagnostics attempted access outside the fixture.'
+  }
+}
+function Get-DreamSkinCodexLaunchObservation {
+  param([object]$Codex, [int]$Port, [object]$LaunchReceipt,
+    [AllowEmptyCollection()][object[]]$Processes, [object]$StartupTrace)
+  return [pscustomobject]@{ ArgumentStatus = 'forwarded' }
+}
 function Enter-DreamSkinOperationLock {
   param([int]$TimeoutMilliseconds)
   return 'mock-lock'
@@ -117,7 +137,8 @@ function Restore-DreamSkinManagedAppearanceSnapshot {
 }
 function Complete-DreamSkinAppearanceTransaction { param([string]$BackupPath, [object]$Transaction) }
 function Start-DreamSkinCodexForDebugging {
-  param([object]$Codex, [string[]]$Arguments, [int]$Port, [int[]]$PreserveProcessIds)
+  param([object]$Codex, [string[]]$Arguments, [int]$Port, [int[]]$PreserveProcessIds,
+    [object]$StartupTrace, [object]$LaunchReceipt)
   $script:cdpReady = $true
   return [pscustomobject]@{ Strategy = 'package-activation' }
 }
@@ -228,7 +249,7 @@ $announcedActive = @($script:hostMessages | Where-Object {
 if (-not $failed -or $script:verifyCalls -ne 1 -or $script:onceCalls -ne 1 -or
   $script:removeCalls -ne 0 -or $script:appearanceInstallCalls -ne 1 -or
   $script:appearanceRestoreCalls -ne 1 -or -not $script:codexStopped -or
-  -not $script:codexStarted -or
+  $script:codexStarted -or
   -not $script:stateWritten -or $script:stateFingerprint -cne 'fixture-fingerprint' -or
   -not $script:stateRemoved -or
   -not $script:daemonStopped -or -not $script:daemon.HasExited -or

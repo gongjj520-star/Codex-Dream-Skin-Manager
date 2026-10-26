@@ -2,6 +2,7 @@
 param([Parameter(Mandatory = $true)][string]$Root)
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $Root 'scripts\common-windows.ps1')
 . (Join-Path $Root 'scripts\localization-windows.ps1')
 $startPath = Join-Path $Root 'scripts\start-dream-skin.ps1'
 $source = [System.IO.File]::ReadAllText($startPath)
@@ -21,7 +22,8 @@ $source = $source.Replace(
   '$animationScript = Join-Path $PSScriptRoot ''play-startup-animation.mjs''',
   '$animationScript = Join-Path $StateRoot (''fixture-animation-disabled-'' + [guid]::NewGuid().ToString(''N'') + ''.mjs'')'
 )
-if ($source.Contains('$PSScriptRoot')) {
+$source = $source.Replace('$ConfigPath = Join-Path $HOME ''.codex\config.toml''', '$ConfigPath = Join-Path $StateRoot ''fixture-config.toml''')
+if ($source.Contains('$PSScriptRoot') -or $source.Contains('$HOME')) {
   throw 'Post-launch failure fixture left a real script-root dependency in isolated source.'
 }
 $startBlock = [scriptblock]::Create($source)
@@ -35,6 +37,23 @@ $script:lockEnters = 0
 $script:lockExits = 0
 $script:themeFingerprint = 'theme-before'
 
+function Assert-DreamSkinStandardLaunchContext { }
+function New-DreamSkinStartupTrace { param([string]$StateRoot); return $null }
+function Write-DreamSkinStartupEvent {
+  param([object]$Trace, [string]$Stage, [hashtable]$Data, [string]$Outcome)
+}
+function Assert-DreamSkinNoReparseComponents {
+  param([string]$Path)
+  $fixtureBoundary = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'CodexDreamSkin')).TrimEnd('\') + '\'
+  if (-not [System.IO.Path]::GetFullPath($Path).StartsWith($fixtureBoundary, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Startup diagnostics attempted access outside the fixture.'
+  }
+}
+function Get-DreamSkinCodexLaunchObservation {
+  param([object]$Codex, [int]$Port, [object]$LaunchReceipt,
+    [AllowEmptyCollection()][object[]]$Processes, [object]$StartupTrace)
+  return [pscustomobject]@{ ArgumentStatus = 'forwarded' }
+}
 function Enter-DreamSkinOperationLock {
   param([int]$TimeoutMilliseconds)
   $script:lockEnters += 1
@@ -102,7 +121,8 @@ function Install-DreamSkinBaseTheme {
   return [pscustomobject]@{ SchemaVersion = 1 }
 }
 function Start-DreamSkinCodexForDebugging {
-  param([object]$Codex, [string[]]$Arguments, [int]$Port, [int[]]$PreserveProcessIds)
+  param([object]$Codex, [string[]]$Arguments, [int]$Port, [int[]]$PreserveProcessIds,
+    [object]$StartupTrace, [object]$LaunchReceipt)
   $script:events += 'launch'
   $script:cdpReady = $true
   return [pscustomobject]@{ Strategy = 'package-activation' }
@@ -185,16 +205,16 @@ try {
   $pause = Invoke-PostLaunchFailureFixture -Scenario 'pause'
   if ($null -eq $pause.Failure -or
     $pause.Failure.Exception.Message -cne 'forced pause clear failure' -or
-    $pause.Events -cne 'launch,stop,restore,start' -or
+    $pause.Events -cne 'launch,stop,restore' -or
     $pause.InstallCalls -ne 1 -or $pause.RestoreCalls -ne 1 -or
     $pause.LockEnters -ne 1 -or $pause.LockExits -ne 1) {
-    throw 'Pause-clear failure did not close Codex, restore appearance, and reopen normally.'
+    throw 'Pause-clear failure did not close this launch and restore appearance without a second start.'
   }
 
   $foreground = Invoke-PostLaunchFailureFixture -Scenario 'foreground'
   if ($null -eq $foreground.Failure -or
     $foreground.Failure.Exception.Message -cne 'forced foreground injector failure' -or
-    $foreground.Events -cne 'launch,stop,restore,start' -or
+    $foreground.Events -cne 'launch,stop,restore' -or
     $foreground.InstallCalls -ne 1 -or $foreground.RestoreCalls -ne 1 -or
     $foreground.LockEnters -ne 2 -or $foreground.LockExits -ne 2) {
     throw 'Immediate foreground failure did not reacquire the lock and restore this launch.'
@@ -212,4 +232,4 @@ try {
   $env:LOCALAPPDATA = $originalLocalAppData
 }
 
-Write-Output 'PASS: post-launch startup failures recover this attempt before normal reopen.'
+Write-Output 'PASS: post-launch startup failures recover this attempt without a second launch.'

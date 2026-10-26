@@ -1298,9 +1298,9 @@ switch ($Action) {
         # Enumerate successfully before deciding absence. The launch helper's
         # per-port query intentionally suppresses errors and cannot prove that
         # a failed inspection means the saved listener is absent.
-        $tcpListeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop)
+        $tcpListeners = @([System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners())
         $sessionEndedWithoutEndpoint = @($tcpListeners | Where-Object {
-          [int]$_.LocalPort -eq [int]$state.port
+          [int]$_.Port -eq [int]$state.port
         }).Count -eq 0
       } catch { $sessionEndedWithoutEndpoint = $false }
     }

@@ -39,6 +39,17 @@ function Assert-FixturePath { param([string]$Path)
     throw "Attempted access outside fixture: $Path"
   }
 }
+function Assert-DreamSkinStandardLaunchContext { }
+function New-DreamSkinStartupTrace { param([string]$StateRoot); return $null }
+function Write-DreamSkinStartupEvent {
+  param([object]$Trace, [string]$Stage, [hashtable]$Data, [string]$Outcome)
+}
+function Assert-DreamSkinNoReparseComponents { param([string]$Path); Assert-FixturePath $Path }
+function Get-DreamSkinCodexLaunchObservation {
+  param([object]$Codex, [int]$Port, [object]$LaunchReceipt,
+    [AllowEmptyCollection()][object[]]$Processes, [object]$StartupTrace)
+  return [pscustomobject]@{ ArgumentStatus = 'forwarded' }
+}
 function Enter-DreamSkinOperationLock { param([int]$TimeoutMilliseconds); return 'fixture-lock' }
 function Exit-DreamSkinOperationLock { param([object]$Mutex); $script:lockExited = $true }
 function Resolve-DreamSkinLanguage { param([string]$StateRoot); return 'en-US' }
@@ -68,7 +79,9 @@ function Get-DreamSkinCodexProcesses { param([object]$Codex)
   # Windows PowerShell 5.1 PSCustomObject does not inherit scalar .Count=1
   # unlike CIM process objects; model that property explicitly.
   if ($script:cdpReady) { return [pscustomobject]@{ ProcessId = 900; Count = 1 } }
-  return ,@()
+  # Emit no objects, matching the real helper. A nested empty array would look
+  # like one concurrent process to the startup caller's @(...).Count check.
+  return @()
 }
 function Get-DreamSkinVerifiedCdpIdentity { param([int]$Port, [object]$Codex)
   $script:cdpProbeCount++
@@ -78,7 +91,8 @@ function Get-DreamSkinVerifiedCdpIdentity { param([int]$Port, [object]$Codex)
 }
 function Get-DreamSkinVerifiedCdpIdentityForAnyRegistered { param([int]$Port); return $null }
 function Test-DreamSkinPortAvailable { param([int]$Port); return $true }
-function Start-DreamSkinCodexForDebugging { param([object]$Codex, [string[]]$Arguments, [int]$Port, [int[]]$PreserveProcessIds)
+function Start-DreamSkinCodexForDebugging { param([object]$Codex, [string[]]$Arguments, [int]$Port, [int[]]$PreserveProcessIds,
+  [object]$StartupTrace, [object]$LaunchReceipt)
   $script:events += 'connect'
   if ($script:failConnect) { throw 'fixture connection failed' }
   $script:cdpReady = $true
@@ -225,7 +239,7 @@ try {
   try { & $startBlock -ConnectOnly } catch { $failure = $_ }
   if ($null -eq $failure -or $failure.Exception.Message -cne 'fixture connection failed' -or
     (Test-Path -LiteralPath $statePath) -or -not $script:lockExited -or
-    ($script:events -join ',') -cne 'connect,stop,ordinary-start') {
+    ($script:events -join ',') -cne 'connect,stop') {
     throw 'Failed connection claimed success or failed its isolated rollback.'
   }
   Assert-NoActiveAnnouncement
@@ -271,7 +285,7 @@ try {
   }
 
   # Decode failure preserves the previous theme, starts no watcher, closes only
-  # the new browser and rolls back its appearance before reopening ordinary Codex.
+  # the new browser and rolls back its appearance without a second launch.
   Assert-FixturePath $statePath
   Remove-Item -LiteralPath $statePath -Force
   Reset-Fixture
@@ -279,7 +293,7 @@ try {
   $failure = $null
   try { & $startBlock -RequestedThemeAppearance light -ThemeApplyArguments $selectedArguments } catch { $failure = $_ }
   if ($null -eq $failure -or $failure.Exception.Message -cne 'fixture decode failed' -or
-    ($script:events -join ',') -cne 'install-light,connect,decode,stop,restore-appearance,ordinary-start' -or
+    ($script:events -join ',') -cne 'install-light,connect,decode,stop,restore-appearance' -or
     $script:activeTheme -cne 'original' -or (Test-Path -LiteralPath $statePath) -or
     -not $script:paused -or -not $script:lockExited) {
     throw "Rejected selected video did not preserve its theme and recover appearance: $($script:events -join ','); $failure."

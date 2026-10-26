@@ -81,6 +81,12 @@ namespace CodexDreamSkinManager
             string value = detail.ToLowerInvariant();
             if (Regex.IsMatch(value, @"cancelled|canceled"))
                 return "操作已取消。";
+            if (value.Contains("launch_process_exited"))
+                return "Codex 启动进程已提前退出，皮肤未能应用；退出信息已记录在启动诊断日志中。";
+            if (value.Contains("separate_session"))
+                return "检测到另一次普通启动，已保留当前窗口；本次皮肤启动已停止。";
+            if (value.Contains("elevated_start"))
+                return "管理器仍在以管理员身份运行，已停止启动操作并保留当前窗口。请关闭管理器后正常重新打开。";
             if (Regex.IsMatch(value, @"restart_required|restart consent|explicit.*restart"))
                 return "Codex 需要重新启动才能应用皮肤，请确认后重试。";
             if (Regex.IsMatch(value, @"blocked by policy|blocked.*policy"))
@@ -93,6 +99,8 @@ namespace CodexDreamSkinManager
                 return "文件完整性校验未通过，请重新下载后重试。";
             if (Regex.IsMatch(value, @"download|network|internet|remote name|name resolution|http|ssl|tls|certificate|econnrefused|econnreset|enotfound|connection.*(?:refused|reset|closed)|fetch failed"))
                 return "网络连接或下载失败，请检查网络后重试。";
+            if (Regex.IsMatch(value, @"did not expose.*cdp endpoint|did not retain.*debugging argument"))
+                return "Codex 未能建立皮肤连接，本次启动失败；详细原因已记录在管理器日志中。";
             if (Regex.IsMatch(value, @"timed?\s*out|timeout|within \d+ seconds"))
                 return "等待操作完成超时，请刷新状态后重试。";
             if (Regex.IsMatch(value, @"cdp|debugging (?:endpoint|argument|session)|reconnect_required|loopback"))

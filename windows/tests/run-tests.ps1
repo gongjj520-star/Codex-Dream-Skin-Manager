@@ -8,13 +8,13 @@ $Root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $Root 'scripts\localization-windows.ps1')
 
 if ((Resolve-DreamSkinLanguage -Language 'zh-CN') -cne 'zh-CN' -or
-  (Resolve-DreamSkinLanguage -Language 'en-US') -cne 'en-US') {
-  throw 'Explicit Windows language overrides did not resolve deterministically.'
+  (Resolve-DreamSkinLanguage -Language 'en-US') -cne 'zh-CN') {
+  throw 'Windows language requests did not retain this distribution''s fixed Chinese display policy.'
 }
 if ((Get-DreamSkinText -Key 'Apply' -Language 'zh-CN') -cne '应用或重新应用' -or
-  (Get-DreamSkinText -Key 'Apply' -Language 'en-US') -cne 'Apply or reapply' -or
-  (Get-DreamSkinText -Key 'Applied' -Language 'en-US' -FormatArguments @('Paper')) -cne 'Applied: Paper') {
-  throw 'Windows tray localization returned incorrect copy.'
+  (Get-DreamSkinText -Key 'Apply' -Language 'en-US') -cne '应用或重新应用' -or
+  (Get-DreamSkinText -Key 'Applied' -Language 'en-US' -FormatArguments @('Paper')) -cne '已应用：Paper') {
+  throw 'Windows tray localization did not return Chinese display and formatted text.'
 }
 $languageState = Join-Path ([System.IO.Path]::GetTempPath()) ('dreamskin-language-' + [Guid]::NewGuid().ToString('N'))
 $originalLanguageOverride = $env:DREAMSKIN_LANG
@@ -23,11 +23,19 @@ try {
   Set-DreamSkinLanguage -Language 'zh-CN' -StateRoot $languageState
   if ((Resolve-DreamSkinLanguage -Language '' -StateRoot $languageState) -cne 'zh-CN' -or
     (Get-DreamSkinLanguagePreference -StateRoot $languageState) -cne 'zh-CN') {
-    throw 'Windows language preference did not persist.'
+    throw 'Windows Chinese display policy did not survive a saved Chinese preference.'
+  }
+  Set-DreamSkinLanguage -Language 'en-US' -StateRoot $languageState
+  $languagePreferencePath = Join-Path $languageState 'language.txt'
+  if ([System.IO.File]::ReadAllText($languagePreferencePath).Trim() -cne 'en-US' -or
+    (Resolve-DreamSkinLanguage -Language '' -StateRoot $languageState) -cne 'zh-CN' -or
+    (Get-DreamSkinLanguagePreference -StateRoot $languageState) -cne 'zh-CN') {
+    throw 'The fixed Chinese display policy changed or overwrote a compatible saved language preference.'
   }
   Set-DreamSkinLanguage -Language 'system' -StateRoot $languageState
-  if ((Get-DreamSkinLanguagePreference -StateRoot $languageState) -cne 'system') {
-    throw 'Windows system-language preference did not clear the override.'
+  if ((Get-DreamSkinLanguagePreference -StateRoot $languageState) -cne 'zh-CN' -or
+    (Test-Path -LiteralPath $languagePreferencePath)) {
+    throw 'Clearing the stored language preference changed the fixed Chinese display policy or left the old override.'
   }
 } finally {
   $env:DREAMSKIN_LANG = $originalLanguageOverride
@@ -913,11 +921,26 @@ try {
     $originalLauncherFunctions[$functionName] = (Get-Command $functionName -CommandType Function).ScriptBlock
   }
   try {
-    Set-Item 'function:Start-DreamSkinCodex' -Value { param($Codex, $Arguments) return 101 }
-    Set-Item 'function:Wait-DreamSkinCodexDebugArgumentStatus' -Value { param($Codex, $Port) return 'forwarded' }
-    Set-Item 'function:Start-DreamSkinCodexDirect' -Value { throw 'Direct fallback must not run for compatible package activation.' }
+    $script:dreamSkinDirectLaunchCalls = 0
+    $script:dreamSkinPackageLaunchCalls = 0
+    $script:dreamSkinDebugArgumentStatus = 'forwarded'
+    Set-Item 'function:Start-DreamSkinCodex' -Value {
+      param($Codex, $Arguments)
+      $script:dreamSkinPackageLaunchCalls++
+      return 101
+    }
+    Set-Item 'function:Start-DreamSkinCodexDirect' -Value {
+      param($Codex, $Arguments, $LaunchReceipt)
+      $script:dreamSkinDirectLaunchCalls++
+      return 202
+    }
+    Set-Item 'function:Wait-DreamSkinCodexDebugArgumentStatus' -Value {
+      param($Codex, $Port, $LaunchReceipt, $StartupTrace)
+      return $script:dreamSkinDebugArgumentStatus
+    }
     Set-Item 'function:Stop-DreamSkinCodex' -Value {
       param($Codex, [int[]]$PreserveProcessIds, [switch]$AllowForce)
+      throw 'A startup strategy must not close a session to try another launch.'
     }
     Set-Item 'function:Get-DreamSkinCodexProcesses' -Value {
       return @(
@@ -930,86 +953,134 @@ try {
     if ($newProcesses.Count -ne 1 -or $newProcesses[0].ProcessId -ne 20) {
       throw 'Launch rollback did not preserve the exact pre-launch Codex PID set.'
     }
+    Set-Item 'function:Get-DreamSkinCodexProcesses' -Value { return @() }
+
     $compatibleLaunch = Start-DreamSkinCodexForDebugging -Codex $fakeInstall `
       -Arguments @('--remote-debugging-port=9335') -Port 9335 -PreserveProcessIds @()
-    if ($compatibleLaunch.ProcessId -ne 101 -or $compatibleLaunch.Strategy -cne 'package-activation') {
-      throw 'Compatible package activation did not remain the preferred launch strategy.'
+    if ($compatibleLaunch.ProcessId -ne 202 -or $compatibleLaunch.Strategy -cne 'direct-store-executable' -or
+      $compatibleLaunch.ArgumentStatus -cne 'forwarded' -or $script:dreamSkinDirectLaunchCalls -ne 1 -or
+      $script:dreamSkinPackageLaunchCalls -ne 0) {
+      throw 'A compatible direct Store launch did not create exactly one session without package activation.'
     }
-    Set-Item 'function:Wait-DreamSkinCodexDebugArgumentStatus' -Value { param($Codex, $Port) return 'uninspectable' }
+
+    $script:dreamSkinDirectLaunchCalls = 0
+    $script:dreamSkinDebugArgumentStatus = 'uninspectable'
     $uninspectableLaunch = Start-DreamSkinCodexForDebugging -Codex $fakeInstall `
       -Arguments @('--remote-debugging-port=9335') -Port 9335 -PreserveProcessIds @()
-    if ($uninspectableLaunch.Strategy -cne 'package-activation' -or
-      $uninspectableLaunch.ArgumentStatus -cne 'uninspectable') {
-      throw 'An uninspectable package process was not kept on the conservative package-activation path.'
-    }
-    Set-Item 'function:Wait-DreamSkinCodexDebugArgumentStatus' -Value { param($Codex, $Port) return 'not-forwarded' }
-    $notForwardedLaunch = Start-DreamSkinCodexForDebugging -Codex $fakeInstall `
-      -Arguments @('--remote-debugging-port=9335') -Port 9335 -PreserveProcessIds @()
-    if ($notForwardedLaunch.Strategy -cne 'package-activation' -or
-      $notForwardedLaunch.ArgumentStatus -cne 'not-forwarded') {
-      throw 'A command-line observation without explicit protocol redirection triggered an unsafe fallback.'
+    if ($uninspectableLaunch.ProcessId -ne 202 -or $uninspectableLaunch.Strategy -cne 'direct-store-executable' -or
+      $uninspectableLaunch.ArgumentStatus -cne 'uninspectable' -or $script:dreamSkinDirectLaunchCalls -ne 1 -or
+      $script:dreamSkinPackageLaunchCalls -ne 0) {
+      throw 'An uninspectable direct process was restarted instead of preserving its single launch.'
     }
 
-    $script:dreamSkinDebugStatusCall = 0
-    Set-Item 'function:Wait-DreamSkinCodexDebugArgumentStatus' -Value {
-      param($Codex, $Port)
-      $script:dreamSkinDebugStatusCall += 1
-      if ($script:dreamSkinDebugStatusCall -eq 1) { return 'protocol-redirected' }
-      return 'forwarded'
-    }
-    Set-Item 'function:Start-DreamSkinCodexDirect' -Value { param($Codex, $Arguments) return 202 }
-    $fallbackLaunch = Start-DreamSkinCodexForDebugging -Codex $fakeInstall `
-      -Arguments @('--remote-debugging-port=9335') -Port 9335 -PreserveProcessIds @()
-    if ($fallbackLaunch.ProcessId -ne 202 -or $fallbackLaunch.Strategy -cne 'direct-store-executable' -or
-      $fallbackLaunch.PackageArgumentStatus -cne 'protocol-redirected') {
-      throw 'owl protocol redirection did not use the validated direct Store executable fallback.'
+    foreach ($argumentStatus in @('not-forwarded', 'protocol-redirected')) {
+      $script:dreamSkinDirectLaunchCalls = 0
+      $script:dreamSkinDebugArgumentStatus = $argumentStatus
+      $argumentFailureCategory = $null
+      try {
+        $null = Start-DreamSkinCodexForDebugging -Codex $fakeInstall `
+          -Arguments @('--remote-debugging-port=9335') -Port 9335 -PreserveProcessIds @()
+      } catch {
+        $argumentFailureCategory = Get-DreamSkinStartFailureCategory -Exception $_.Exception
+      }
+      if ($argumentFailureCategory -cne 'cdp-endpoint-unavailable' -or
+        $script:dreamSkinDirectLaunchCalls -ne 1 -or $script:dreamSkinPackageLaunchCalls -ne 0) {
+        throw "A direct launch with $argumentStatus did not stop with its bounded category after one launch."
+      }
     }
 
-    $script:dreamSkinDebugStatusCall = 0
-    Set-Item 'function:Wait-DreamSkinCodexDebugArgumentStatus' -Value {
-      param($Codex, $Port)
-      $script:dreamSkinDebugStatusCall += 1
-      if ($script:dreamSkinDebugStatusCall -eq 1) { return 'protocol-redirected' }
-      return 'not-forwarded'
+    $script:dreamSkinDirectLaunchCalls = 0
+    $script:dreamSkinDebugArgumentStatus = 'forwarded'
+    Set-Item 'function:Start-DreamSkinCodexDirect' -Value {
+      param($Codex, $Arguments, $LaunchReceipt)
+      $script:dreamSkinDirectLaunchCalls++
+      throw [System.UnauthorizedAccessException]::new('denied before process creation')
     }
-    $directArgumentFailureReported = $false
-    $directArgumentFailureCategory = $null
+    $activationLaunch = Start-DreamSkinCodexForDebugging -Codex $fakeInstall `
+      -Arguments @('--remote-debugging-port=9335') -Port 9335 -PreserveProcessIds @()
+    if ($activationLaunch.ProcessId -ne 101 -or $activationLaunch.Strategy -cne 'package-activation' -or
+      $activationLaunch.PackageArgumentStatus -cne 'forwarded' -or $script:dreamSkinDirectLaunchCalls -ne 1 -or
+      $script:dreamSkinPackageLaunchCalls -ne 1) {
+      throw 'A direct creation access denial with no concurrent session did not allow exactly one package activation.'
+    }
+
+    $script:dreamSkinDirectLaunchCalls = 0
+    $script:dreamSkinPackageLaunchCalls = 0
+    Set-Item 'function:Start-DreamSkinCodexDirect' -Value {
+      param($Codex, $Arguments, $LaunchReceipt)
+      $script:dreamSkinDirectLaunchCalls++
+      throw [System.InvalidOperationException]::new('fixture direct startup failure')
+    }
+    $launchFailureCategory = $null
     try {
       $null = Start-DreamSkinCodexForDebugging -Codex $fakeInstall `
         -Arguments @('--remote-debugging-port=9335') -Port 9335 -PreserveProcessIds @()
     } catch {
-      $directArgumentFailureReported = $_.Exception.Message.Contains(
-        'package activation or validated direct launch')
-      $directArgumentFailureCategory = Get-DreamSkinStartFailureCategory `
-        -Exception $_.Exception
+      $launchFailureCategory = Get-DreamSkinStartFailureCategory -Exception $_.Exception
     }
-    if (-not $directArgumentFailureReported -or
-      $directArgumentFailureCategory -cne 'cdp-endpoint-unavailable') {
-      throw 'A direct fallback that also dropped the CDP argument did not preserve its result category.'
+    if ($launchFailureCategory -cne 'cdp-launch-failed' -or $script:dreamSkinDirectLaunchCalls -ne 1 -or
+      $script:dreamSkinPackageLaunchCalls -ne 0) {
+      throw 'An ordinary direct startup failure incorrectly attempted package activation or lost its category.'
     }
 
-    Set-Item 'function:Wait-DreamSkinCodexDebugArgumentStatus' -Value { param($Codex, $Port) return 'protocol-redirected' }
+    $script:dreamSkinDirectLaunchCalls = 0
     Set-Item 'function:Start-DreamSkinCodexDirect' -Value {
-      throw [System.UnauthorizedAccessException]::new('denied')
+      param($Codex, $Arguments, $LaunchReceipt)
+      $script:dreamSkinDirectLaunchCalls++
+      throw [System.UnauthorizedAccessException]::new('denied before process creation')
     }
-    $accessDeniedReported = $false
+    Set-Item 'function:Start-DreamSkinCodex' -Value {
+      param($Codex, $Arguments)
+      $script:dreamSkinPackageLaunchCalls++
+      throw [System.InvalidOperationException]::new('fixture package activation failure')
+    }
     $accessDeniedCategory = $null
     try {
       $null = Start-DreamSkinCodexForDebugging -Codex $fakeInstall `
         -Arguments @('--remote-debugging-port=9335') -Port 9335 -PreserveProcessIds @()
     } catch {
-      $accessDeniedReported = $_.Exception.Message.Contains('(access-denied)') -and
-        $_.Exception.Message.Contains('protected app package')
       $accessDeniedCategory = Get-DreamSkinStartFailureCategory -Exception $_.Exception
     }
-    if (-not $accessDeniedReported -or $accessDeniedCategory -cne 'cdp-direct-access-denied') {
-      throw 'A blocked direct Store launch did not preserve its result category.'
+    if ($accessDeniedCategory -cne 'cdp-direct-access-denied' -or $script:dreamSkinDirectLaunchCalls -ne 1 -or
+      $script:dreamSkinPackageLaunchCalls -ne 1) {
+      throw 'Direct access denial followed by package activation failure did not preserve its bounded category.'
+    }
+
+    $script:dreamSkinDirectLaunchCalls = 0
+    $script:dreamSkinPackageLaunchCalls = 0
+    Set-Item 'function:Get-DreamSkinCodexProcesses' -Value {
+      return @([pscustomobject]@{ ProcessId = 303 })
+    }
+    $concurrentCategory = $null
+    try {
+      $null = Start-DreamSkinCodexForDebugging -Codex $fakeInstall `
+        -Arguments @('--remote-debugging-port=9335') -Port 9335 -PreserveProcessIds @()
+    } catch {
+      $concurrentCategory = Get-DreamSkinStartFailureCategory -Exception $_.Exception
+    }
+    if ($concurrentCategory -cne 'superseded' -or $script:dreamSkinDirectLaunchCalls -ne 1 -or
+      $script:dreamSkinPackageLaunchCalls -ne 0) {
+      throw 'A session appearing after access denial was not preserved before package activation.'
+    }
+
+    $script:dreamSkinDirectLaunchCalls = 0
+    $existingSessionCategory = $null
+    try {
+      $null = Start-DreamSkinCodexForDebugging -Codex $fakeInstall `
+        -Arguments @('--remote-debugging-port=9335') -Port 9335 -PreserveProcessIds @(303)
+    } catch {
+      $existingSessionCategory = Get-DreamSkinStartFailureCategory -Exception $_.Exception
+    }
+    if ($existingSessionCategory -cne 'superseded' -or $script:dreamSkinDirectLaunchCalls -ne 0 -or
+      $script:dreamSkinPackageLaunchCalls -ne 0) {
+      throw 'A pre-existing session without restart consent reached either launch strategy.'
     }
   } finally {
     foreach ($functionName in $launcherFunctionNames) {
       Set-Item ("function:$functionName") -Value $originalLauncherFunctions[$functionName]
     }
-    Remove-Variable -Name dreamSkinDebugStatusCall -Scope Script -ErrorAction SilentlyContinue
+    Remove-Variable -Name dreamSkinDirectLaunchCalls,dreamSkinPackageLaunchCalls,dreamSkinDebugArgumentStatus `
+      -Scope Script -ErrorAction SilentlyContinue
   }
   $fakeManifest.Package.Applications.Application[1].Id = 'Invalid App'
   if ($null -ne (ConvertTo-DreamSkinCodexInstall -Package $fakePackage -Manifest $fakeManifest)) {
@@ -1478,13 +1549,41 @@ try {
     -not $commonSource.Contains('if (-not $processHandle.HasExited)')) {
     throw 'Recorded injector shutdown must wait on the exact validated process object before startup continues.'
   }
-  if (-not $startSource.Contains('direct Store executable fallback did not expose a verified loopback CDP endpoint') -or
-    -not $startSource.Contains('may disable CDP in this production runtime')) {
-    throw 'A direct launch that retains CDP arguments but exposes no listener no longer reports the owl runtime failure.'
+  if (-not $startSource.Contains('The validated Codex executable did not expose a verified loopback CDP endpoint') -or
+    -not $startSource.Contains('startup-last-failure.json')) {
+    throw 'A direct launch without a verified listener no longer reports the connection failure and its startup diagnostics.'
   }
-  if (-not $startSource.Contains('-PreserveProcessIds $debugLaunchBaselineProcessIds -AllowForce') -or
-    -not $startSource.Contains('reopening Codex without a debugging port')) {
-    throw 'The no-listener launch path no longer closes only new Codex processes and restores a normal launch.'
+  if (-not $startSource.Contains('Stop-DreamSkinLaunchedCodex -Codex $codex -LaunchReceipt $debugLaunchReceipt') -or
+    -not $startSource.Contains('-PreserveProcessIds $debugLaunchBaselineProcessIds -StartupTrace $startupTrace') -or
+    -not $startSource.Contains('Restore-DreamSkinManagedAppearanceSnapshot') -or
+    $startSource.Contains('reopening Codex without a debugging port')) {
+    throw 'Failed startup must clean up only its verified launch, restore appearance, and avoid a second ordinary startup.'
+  }
+  # Recovery may reopen a previously running session that this operation
+  # explicitly closed. Every ordinary reopen must retain that positive guard;
+  # cold startup must never acquire a second unskinned session on failure.
+  $startupTokens = $null; $startupParseErrors = $null
+  $startupAst = [System.Management.Automation.Language.Parser]::ParseInput(
+    $startSource, [ref]$startupTokens, [ref]$startupParseErrors)
+  if ($startupParseErrors.Count) { throw 'Could not parse startup recovery guards.' }
+  $ordinaryLaunches = @($startupAst.FindAll({ param($node)
+    $node -is [System.Management.Automation.Language.CommandAst] -and
+      $node.GetCommandName() -ceq 'Start-DreamSkinCodex'
+  }, $true))
+  if ($ordinaryLaunches.Count -eq 0) { throw 'Recovery lost the ability to restore a session this operation closed.' }
+  foreach ($ordinaryLaunch in $ordinaryLaunches) {
+    $restoreGuarded = $false
+    for ($ancestor = $ordinaryLaunch.Parent; $null -ne $ancestor; $ancestor = $ancestor.Parent) {
+      if ($ancestor -isnot [System.Management.Automation.Language.IfStatementAst]) { continue }
+      foreach ($clause in $ancestor.Clauses) {
+        if ($clause.Item2.Extent.StartOffset -le $ordinaryLaunch.Extent.StartOffset -and
+          $clause.Item2.Extent.EndOffset -ge $ordinaryLaunch.Extent.EndOffset -and
+          $clause.Item1.Extent.Text.Trim() -cin @('$closedExistingCodex', '$closedExistingCodex -and $failedLaunchClosed')) {
+          $restoreGuarded = $true
+        }
+      }
+    }
+    if (-not $restoreGuarded) { throw 'A failed cold startup can reopen ordinary Codex without having closed an existing session.' }
   }
   if (-not $startSource.Contains('WaitForExit(15000)')) {
     throw 'Startup rollback no longer waits long enough for its own injector to exit; short waits leave duelling watchers.'

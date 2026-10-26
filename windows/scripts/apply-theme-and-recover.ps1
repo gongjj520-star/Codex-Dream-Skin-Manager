@@ -65,6 +65,9 @@ if (-not $ThemeDirectory -and -not $ImagePath) {
 $operationLock = $null
 $previousRecoveryLockHeld = $env:CODEX_DREAM_SKIN_RECOVERY_LOCK_HELD
 try {
+  # Recovery otherwise closes the old session before calling start. Check the
+  # launch context before that first destructive step as well.
+  Assert-DreamSkinStandardLaunchContext
   $operationLock = Enter-DreamSkinOperationLock
   $env:CODEX_DREAM_SKIN_RECOVERY_LOCK_HELD = '1'
   $common = @('-SkillRoot', $SkillRoot, '-StateRoot', $StateRoot)

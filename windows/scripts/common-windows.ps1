@@ -1,4 +1,4 @@
-. (Join-Path $PSScriptRoot 'config-utf8.ps1')
+﻿. (Join-Path $PSScriptRoot 'config-utf8.ps1')
 $runtimeVersionScript = Join-Path $PSScriptRoot 'runtime-version.ps1'
 if (Test-Path -LiteralPath $runtimeVersionScript -PathType Leaf) {
   . $runtimeVersionScript
@@ -179,8 +179,36 @@ function Read-DreamSkinStartResult {
   return $result
 }
 
+function Assert-DreamSkinStandardLaunchContext {
+  $identity = $null
+  try {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+      throw (New-DreamSkinStartException -Category 'cdp-launch-failed' `
+        -Message 'DREAM_SKIN_ELEVATED_START: The manager is still elevated. Startup stopped before changing appearance or closing any existing Codex window. Reopen the manager with standard permissions.' `
+        -InnerException $null)
+    }
+  } finally {
+    if ($null -ne $identity) { $identity.Dispose() }
+  }
+}
+
 function New-DreamSkinStartupTrace {
   param([Parameter(Mandatory = $true)][string]$StateRoot)
+  $launchPrivilege = 'uninspectable'
+  $identity = $null
+  try {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    $launchPrivilege = if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+      'elevated'
+    } else { 'standard' }
+  } catch {
+    # Record only this process's privilege class, never account information.
+  } finally {
+    if ($null -ne $identity) { $identity.Dispose() }
+  }
   return [pscustomobject]@{
     StateRoot = [System.IO.Path]::GetFullPath($StateRoot)
     Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -188,6 +216,7 @@ function New-DreamSkinStartupTrace {
       schemaVersion = 1
       attemptId = [Guid]::NewGuid().ToString('N')
       startedAtUtc = [DateTime]::UtcNow.ToString('o')
+      launchPrivilege = $launchPrivilege
       outcome = 'running'
       events = [System.Collections.Generic.List[object]]::new()
     }
@@ -211,7 +240,9 @@ function Write-DreamSkinStartupEvent {
     # contents, exception text, authentication data or user configuration.
     foreach ($key in @('codexVersion', 'strategy', 'argumentStatus', 'directFailureKind',
         'port', 'processCount', 'category', 'appearanceRecovery', 'selectedTheme',
-        'connectOnly', 'reconnectOnly', 'gracefulTimeoutSeconds')) {
+        'connectOnly', 'reconnectOnly', 'gracefulTimeoutSeconds', 'rootProcessId',
+        'rootStartedAtUtc', 'handleCaptured', 'rootExited', 'rootExitCode',
+        'otherBrowserProcessCount', 'nativeLog')) {
       if (-not $Data.ContainsKey($key)) { continue }
       $value = $Data[$key]
       if (($value -is [string] -and $value.Length -le 128) -or
@@ -232,6 +263,15 @@ function Write-DreamSkinStartupEvent {
       $failurePath = Join-Path $Trace.StateRoot 'startup-last-failure.json'
       Assert-DreamSkinNoReparseComponents -Path $failurePath
       Write-DreamSkinUtf8FileAtomically -Path $failurePath -Content $json
+    }
+    if ($Outcome -cne 'running' -and "$($Trace.Report.attemptId)" -cmatch '^[a-f0-9]{32}$') {
+      # Preserve terminal attempts so a later retry cannot erase the failure
+      # that the user originally reported. These files contain only metadata.
+      $historyRoot = Join-Path $Trace.StateRoot 'startup-attempts'
+      Ensure-DreamSkinManagedDirectory -Path $historyRoot -Root $Trace.StateRoot
+      $historyPath = Join-Path $historyRoot "$($Trace.Report.attemptId).json"
+      Assert-DreamSkinNoReparseComponents -Path $historyPath
+      Write-DreamSkinUtf8FileAtomically -Path $historyPath -Content $json
     }
   } catch {
     # Diagnostics are best effort and must never turn a working startup into
@@ -668,7 +708,7 @@ function Invoke-DreamSkinPowerShellScript {
   param(
     [Parameter(Mandatory = $true)][string]$ScriptPath,
     [string[]]$ArgumentList = @(),
-    [string[]]$SwitchParameters = @('-DeferLiveApply', '-SkipThemes')
+    [string[]]$SwitchParameters = @('-DeferLiveApply', '-SkipThemes', '-Quick')
   )
   # Windows PowerShell's native -File forwarding strips embedded JSON quotes.
   # Encode a PowerShell invocation with literal values instead of native argv.
@@ -1032,7 +1072,11 @@ function Start-DreamSkinCodexDirect {
       # the timestamp must not be mistaken for process-creation access denial.
       try {
         $LaunchReceipt.ProcessId = [int]$process.Id
+        # Win32_Process.CreationDate exposes microseconds; normalize this .NET
+        # receipt at that boundary so later exact CIM identity checks can match.
         $LaunchReceipt.StartedAtUtc = $process.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ')
+        Save-DreamSkinCodexLaunchProcessHandle -LaunchReceipt $LaunchReceipt
+        $null = @(Get-DreamSkinCodexLaunchProcessIdentities -Codex $Codex -LaunchReceipt $LaunchReceipt)
       } catch {}
     }
     return $process.Id
@@ -1055,17 +1099,123 @@ function Get-DreamSkinDirectLaunchFailureKind {
   return 'start-failed'
 }
 
+function Save-DreamSkinCodexLaunchProcessHandle {
+  param([AllowNull()][object]$LaunchReceipt)
+  if ($null -eq $LaunchReceipt -or $LaunchReceipt.ProcessId -le 0 -or
+      -not $LaunchReceipt.StartedAtUtc) { return }
+  if ($LaunchReceipt.PSObject.Properties['RootProcessHandle'] -and
+      $null -ne $LaunchReceipt.RootProcessHandle) { return }
+  $handle = $null
+  $retained = $false
+  try {
+    $handle = [System.Diagnostics.Process]::GetProcessById([int]$LaunchReceipt.ProcessId)
+    [void]$handle.Handle
+    # Compare .NET and the receipt at the CIM microsecond boundary. Retaining
+    # this kernel handle lets us observe exit even after the PID disappears.
+    if (-not (Test-DreamSkinTimestampEqual `
+        -Left $handle.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ') `
+        -Right $LaunchReceipt.StartedAtUtc)) { return }
+    $LaunchReceipt | Add-Member -NotePropertyName RootProcessHandle -NotePropertyValue $handle -Force
+    $retained = $true
+  } catch {
+    # Missing observation must not be presented as proof of process exit.
+  } finally {
+    if (-not $retained -and $null -ne $handle) { $handle.Dispose() }
+  }
+}
+
+function Close-DreamSkinCodexLaunchProcessHandle {
+  param([AllowNull()][object]$LaunchReceipt)
+  if ($null -eq $LaunchReceipt -or
+      -not $LaunchReceipt.PSObject.Properties['RootProcessHandle']) { return }
+  if ($null -ne $LaunchReceipt.RootProcessHandle) {
+    try { $LaunchReceipt.RootProcessHandle.Dispose() } catch {}
+    $LaunchReceipt.RootProcessHandle = $null
+  }
+}
+
+function Get-DreamSkinCodexLaunchObservation {
+  param(
+    [Parameter(Mandatory = $true)][object]$Codex,
+    [Parameter(Mandatory = $true)][int]$Port,
+    [AllowNull()][object]$LaunchReceipt,
+    [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Processes,
+    [AllowNull()][object]$StartupTrace
+  )
+  if ($null -eq $LaunchReceipt -or $LaunchReceipt.ProcessId -le 0 -or
+      -not $LaunchReceipt.StartedAtUtc) {
+    return [pscustomobject]@{
+      ArgumentStatus = Get-DreamSkinCodexDebugArgumentStatus -Processes $Processes -Port $Port
+    }
+  }
+  $owned = @(Get-DreamSkinCodexLaunchProcessIdentities -Codex $Codex `
+    -LaunchReceipt $LaunchReceipt -Processes $Processes)
+  $ownedIds = @{}
+  foreach ($identity in $owned) { $ownedIds[[int]$identity.ProcessId] = $true }
+  # The identities and process objects belong to the same snapshot. A normal
+  # window opened by the user must not stand in for this launch's arguments.
+  $ownedProcesses = @($Processes | Where-Object { $ownedIds.ContainsKey([int]$_.ProcessId) })
+  $argumentStatus = Get-DreamSkinCodexDebugArgumentStatus -Processes $ownedProcesses -Port $Port
+  $otherBrowsers = @($Processes | Where-Object {
+    -not $ownedIds.ContainsKey([int]$_.ProcessId) -and $_.CommandLine -and
+      "$($_.CommandLine)" -notmatch '(?i)(?:^|[\s"])--type(?:=|[\s"])'
+  })
+  $rootExited = $null
+  $rootExitCode = $null
+  $handleCaptured = $false
+  if ($LaunchReceipt.PSObject.Properties['RootProcessHandle'] -and
+      $null -ne $LaunchReceipt.RootProcessHandle) {
+    $handleCaptured = $true
+    try {
+      $rootExited = [bool]$LaunchReceipt.RootProcessHandle.HasExited
+      if ($rootExited) { $rootExitCode = [int]$LaunchReceipt.RootProcessHandle.ExitCode }
+    } catch {}
+  }
+  $observationKey = "$argumentStatus|$($owned.Count)|$($otherBrowsers.Count)|$handleCaptured|$rootExited|$rootExitCode"
+  if (-not $LaunchReceipt.PSObject.Properties['LastObservationKey'] -or
+      $LaunchReceipt.LastObservationKey -cne $observationKey) {
+    $LaunchReceipt | Add-Member -NotePropertyName LastObservationKey -NotePropertyValue $observationKey -Force
+    Write-DreamSkinStartupEvent -Trace $StartupTrace -Stage 'launch-process-status' -Data @{
+      rootProcessId = [int]$LaunchReceipt.ProcessId
+      rootStartedAtUtc = "$($LaunchReceipt.StartedAtUtc)"
+      processCount = $owned.Count
+      otherBrowserProcessCount = $otherBrowsers.Count
+      argumentStatus = $argumentStatus
+      handleCaptured = $handleCaptured
+      rootExited = $rootExited
+      rootExitCode = $rootExitCode
+    }
+  }
+  # A live, already-observed child may legitimately outlast its launch parent.
+  # Only stop waiting when that parent has exited and no owned child is known.
+  if ($rootExited -eq $true -and $owned.Count -eq 0) {
+    throw (New-DreamSkinStartException -Category 'cdp-launch-failed' `
+      -Message 'DREAM_SKIN_LAUNCH_PROCESS_EXITED: The launch process exited before the skin connection became ready and no surviving owned session could be verified. See startup diagnostics for its exit status.' `
+      -InnerException $null)
+  }
+  if ($owned.Count -eq 0 -and $otherBrowsers.Count -gt 0) {
+    throw (New-DreamSkinStartException -Category 'superseded' `
+      -Message 'DREAM_SKIN_SEPARATE_SESSION: A separate Codex session appeared after this launch; it was preserved.' `
+      -InnerException $null)
+  }
+  return [pscustomobject]@{ ArgumentStatus = $argumentStatus }
+}
+
 function Wait-DreamSkinCodexDebugArgumentStatus {
   param(
     [Parameter(Mandatory = $true)][object]$Codex,
     [Parameter(Mandatory = $true)][int]$Port,
-    [int]$TimeoutSeconds = 5
+    [int]$TimeoutSeconds = 5,
+    [AllowNull()][object]$LaunchReceipt,
+    [AllowNull()][object]$StartupTrace
   )
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
   $lastStatus = 'uninspectable'
   do {
     $processes = @(Get-DreamSkinCodexProcesses -Codex $Codex)
-    $lastStatus = Get-DreamSkinCodexDebugArgumentStatus -Processes $processes -Port $Port
+    $observation = Get-DreamSkinCodexLaunchObservation -Codex $Codex -Port $Port `
+      -LaunchReceipt $LaunchReceipt -Processes $processes -StartupTrace $StartupTrace
+    $lastStatus = $observation.ArgumentStatus
     if ($lastStatus -in @('forwarded', 'protocol-redirected')) { return $lastStatus }
     if ((Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
   } while ((Get-Date) -lt $deadline)
@@ -1130,21 +1280,26 @@ function Start-DreamSkinCodexForDebugging {
         -InnerException $_.Exception)
     }
     if ($null -ne $LaunchReceipt) {
-      $activated = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$processId)" -ErrorAction SilentlyContinue
-      $activatedPath = if ($activated) { Get-DreamSkinProcessExecutablePath -ProcessInfo $activated } else { $null }
-      if ($null -eq $activated -or $null -eq $activated.CreationDate -or
-        $activated.CreationDate.ToUniversalTime() -lt $activationStartedAt -or
-        -not (Test-DreamSkinPathEqual -Left $activatedPath -Right $Codex.Executable)) {
+      # Verify the root and capture its descendants from the same path-checked
+      # snapshot, before a Store launcher can hand off and exit between reads.
+      $activatedProcesses = @(Get-DreamSkinCodexProcesses -Codex $Codex)
+      $activated = @($activatedProcesses | Where-Object { [int]$_.ProcessId -eq [int]$processId })
+      if ($activated.Count -ne 1 -or $null -eq $activated[0].CreationDate -or
+        $activated[0].CreationDate.ToUniversalTime() -lt $activationStartedAt) {
         throw (New-DreamSkinStartException -Category 'superseded' `
           -Message 'Codex activation did not return a verifiably new process; existing sessions were preserved.' `
           -InnerException $null)
       }
       $LaunchReceipt.ProcessId = [int]$processId
-      $LaunchReceipt.StartedAtUtc = $activated.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ')
+      $LaunchReceipt.StartedAtUtc = $activated[0].CreationDate.ToUniversalTime().ToString('o')
+      Save-DreamSkinCodexLaunchProcessHandle -LaunchReceipt $LaunchReceipt
+      $null = @(Get-DreamSkinCodexLaunchProcessIdentities -Codex $Codex `
+        -LaunchReceipt $LaunchReceipt -Processes $activatedProcesses)
     }
   }
 
-  $argumentStatus = Wait-DreamSkinCodexDebugArgumentStatus -Codex $Codex -Port $Port
+  $argumentStatus = Wait-DreamSkinCodexDebugArgumentStatus -Codex $Codex -Port $Port `
+    -LaunchReceipt $LaunchReceipt -StartupTrace $StartupTrace
   if ($strategy -ceq 'package-activation') { $packageStatus = $argumentStatus }
   Write-DreamSkinStartupEvent -Trace $StartupTrace -Stage 'arguments-checked' `
     -Data @{ strategy = $strategy; argumentStatus = $argumentStatus }
@@ -1614,32 +1769,54 @@ function Get-DreamSkinCodexProcessesExcept {
 function Get-DreamSkinCodexLaunchProcessIdentities {
   param(
     [Parameter(Mandatory = $true)][object]$Codex,
-    [AllowNull()][object]$LaunchReceipt
+    [AllowNull()][object]$LaunchReceipt,
+    [AllowEmptyCollection()][object[]]$Processes
   )
   if ($null -eq $LaunchReceipt -or $LaunchReceipt.ProcessId -le 0 -or
     -not $LaunchReceipt.StartedAtUtc) { return @() }
-  $processes = @(Get-DreamSkinCodexProcesses -Codex $Codex)
-  $root = @($processes | Where-Object {
-    [int]$_.ProcessId -eq [int]$LaunchReceipt.ProcessId -and
-      (Test-DreamSkinTimestampEqual -Left $_.CreationDate -Right $LaunchReceipt.StartedAtUtc)
-  })
-  # Without a live, matching root there is no proof that similarly named
-  # processes belong to this attempt. Never fall back to whole-package cleanup.
-  if ($root.Count -ne 1) { return @() }
-  $owned = @{ ([int]$root[0].ProcessId) = $root[0].CreationDate }
+  if (-not $PSBoundParameters.ContainsKey('Processes')) {
+    $Processes = @(Get-DreamSkinCodexProcesses -Codex $Codex)
+  }
+  if (-not $LaunchReceipt.PSObject.Properties['OwnedProcessIdentities']) {
+    $LaunchReceipt | Add-Member -NotePropertyName OwnedProcessIdentities -NotePropertyValue @()
+  }
+  # Retain identities observed while this launch's parent was alive. Store
+  # activation may hand off to a child and exit before the endpoint times out.
+  # Matching children remain owned even after the original parent has exited.
+  $known = @{ ([int]$LaunchReceipt.ProcessId) = $LaunchReceipt.StartedAtUtc }
+  foreach ($identity in @($LaunchReceipt.OwnedProcessIdentities)) {
+    if ($identity.ProcessId -gt 0 -and $identity.StartedAtUtc) {
+      $known[[int]$identity.ProcessId] = $identity.StartedAtUtc
+    }
+  }
+  $liveOwned = @{}
+  foreach ($process in $Processes) {
+    $processId = [int]$process.ProcessId
+    if ($known.ContainsKey($processId) -and
+      (Test-DreamSkinTimestampEqual -Left $process.CreationDate -Right $known[$processId])) {
+      $liveOwned[$processId] = $process.CreationDate
+    }
+  }
   do {
     $added = $false
-    foreach ($process in $processes) {
+    foreach ($process in $Processes) {
       $processId = [int]$process.ProcessId
       $parentId = [int]$process.ParentProcessId
-      if (-not $owned.ContainsKey($processId) -and $owned.ContainsKey($parentId) -and
-        $null -ne $process.CreationDate -and $process.CreationDate -ge $owned[$parentId]) {
-        $owned[$processId] = $process.CreationDate
+      # New descendants need a still-matching, live parent in this snapshot.
+      # An old PID or an unrelated concurrent Codex session is never enough.
+      if (-not $known.ContainsKey($processId) -and $liveOwned.ContainsKey($parentId) -and
+        $null -ne $process.CreationDate -and $process.CreationDate -ge $liveOwned[$parentId] -and
+        $known.Count -lt 1024) {
+        $known[$processId] = $process.CreationDate
+        $liveOwned[$processId] = $process.CreationDate
         $added = $true
       }
     }
   } while ($added)
-  return @($processes | Where-Object { $owned.ContainsKey([int]$_.ProcessId) } | ForEach-Object {
+  $LaunchReceipt.OwnedProcessIdentities = @($known.GetEnumerator() | ForEach-Object {
+    [pscustomobject]@{ ProcessId = [int]$_.Key; StartedAtUtc = $_.Value }
+  })
+  return @($Processes | Where-Object { $liveOwned.ContainsKey([int]$_.ProcessId) } | ForEach-Object {
     [pscustomobject]@{ ProcessId = [int]$_.ProcessId; StartedAtUtc = $_.CreationDate }
   })
 }
@@ -1652,6 +1829,10 @@ function Stop-DreamSkinLaunchedCodex {
     [AllowNull()][object]$StartupTrace
   )
   $owned = @(Get-DreamSkinCodexLaunchProcessIdentities -Codex $Codex -LaunchReceipt $LaunchReceipt)
+  Write-DreamSkinStartupEvent -Trace $StartupTrace -Stage 'rollback-owned-processes' -Data @{
+    processCount = $owned.Count
+    category = if ($owned.Count -gt 0) { 'verified-owned-processes' } else { 'no-verified-owned-processes' }
+  }
   Stop-DreamSkinCodex -Codex $Codex -PreserveProcessIds $PreserveProcessIds `
     -OwnedProcessIdentities $owned -AllowForce -GracefulTimeoutSeconds 3 -StartupTrace $StartupTrace
 }

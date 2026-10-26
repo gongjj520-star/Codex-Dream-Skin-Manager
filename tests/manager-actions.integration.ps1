@@ -426,11 +426,18 @@ try {
   $extension = $sourceImage.Extension.ToLowerInvariant()
   Copy-Item -LiteralPath $sourceImage.FullName -Destination (Join-Path $archiveRoot ('art-duplicate-a' + $extension))
   Copy-Item -LiteralPath $sourceImage.FullName -Destination (Join-Path $archiveRoot ('art-duplicate-b' + $extension))
-  $null = Invoke-Manager -Arguments (@('-Action', 'ApplyTheme', '-ThemeDirectory', $saved[0].themeDirectory) + $common)
   $sourceHash = (Get-FileHash -LiteralPath $sourceImage.FullName -Algorithm SHA256).Hash
+  $archivesBeforeSavedApply = @(Get-ChildItem -LiteralPath $archiveRoot -File -Filter 'art-*' | Where-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash -eq $sourceHash })
+  $null = Invoke-Manager -Arguments (@('-Action', 'ApplyTheme', '-ThemeDirectory', $saved[0].themeDirectory) + $common)
+  $archivesAfterSavedApply = @(Get-ChildItem -LiteralPath $archiveRoot -File -Filter 'art-*' | Where-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash -eq $sourceHash })
+  Assert-Equal $archivesBeforeSavedApply.Count $archivesAfterSavedApply.Count 'Applying a saved theme unexpectedly rewrote the image archive library.'
+  $rawArchiveInput = Join-Path $testRoot ('custom-archive-input' + $extension)
+  Copy-Item -LiteralPath $sourceImage.FullName -Destination $rawArchiveInput
+  $null = Invoke-Manager -Arguments (@('-Action', 'ApplyTheme', '-ImagePath', $rawArchiveInput, '-Name', 'Archive fixture') + $common)
   $matchingArchives = @(Get-ChildItem -LiteralPath $archiveRoot -File -Filter 'art-*' | Where-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash -eq $sourceHash })
-  Assert-Equal 1 $matchingArchives.Count 'Duplicate image archives were not cleaned by content hash.'
-  Write-Host 'PASS: duplicate image archives are safely deduplicated'
+  Assert-Equal 1 $matchingArchives.Count 'Importing raw media did not clean duplicate image archives by content hash.'
+  $null = Invoke-Manager -Arguments (@('-Action', 'ApplyTheme', '-ThemeDirectory', $saved[0].themeDirectory) + $common)
+  Write-Host 'PASS: saved theme switches retain archives; raw media archives are safely deduplicated'
 
   $activeSavedStatus = Invoke-Manager -Arguments (@('-Action', 'Status') + $common)
   Assert-Equal $saved[0].id $activeSavedStatus.activeThemeId 'Status did not expose the active theme id.'
@@ -835,11 +842,23 @@ if (args.includes("--watch")) {
 
   $mismatchState.injectorPid = 2147483000
   $mismatchState.injectorStartedAt = '2000-01-01T00:00:00.0000000Z'
-  [System.IO.File]::WriteAllText((Join-Path $stateRoot 'state.json'), (($mismatchState | ConvertTo-Json -Depth 5) + "`r`n"), [System.Text.Encoding]::UTF8)
-  $stale = Invoke-Manager -Arguments (@('-Action', 'Status') + $common)
-  Assert-Equal 'stale' $stale.statusKind 'A missing PID was not reported as stale.'
-  Assert-Equal $false $stale.isRunning 'A stale PID was reported as running.'
-  Write-Host 'PASS: status identifies stale injector state'
+  # Reserve a fixture endpoint to distinguish an occupied saved port from a
+  # normal ended session, without probing or starting an actual Codex process.
+  $endedSessionListener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+  try {
+    $endedSessionListener.Start()
+    $mismatchState.port = $endedSessionListener.LocalEndpoint.Port
+    [System.IO.File]::WriteAllText((Join-Path $stateRoot 'state.json'), (($mismatchState | ConvertTo-Json -Depth 5) + "`r`n"), [System.Text.Encoding]::UTF8)
+    $stale = Invoke-Manager -Arguments (@('-Action', 'Status', '-Quick') + $common)
+    Assert-Equal 'stale' $stale.statusKind 'A missing PID with an occupied saved port lost its stale diagnostic.'
+    Assert-Equal $false $stale.isRunning 'A missing PID was reported as running.'
+  } finally {
+    $endedSessionListener.Stop()
+  }
+  $stopped = Invoke-Manager -Arguments (@('-Action', 'Status', '-Quick') + $common)
+  Assert-Equal 'stopped' $stopped.statusKind 'A missing PID with no saved listener was not reported as stopped.'
+  Assert-Equal $false $stopped.isRunning 'An ended session was reported as running.'
+  Write-Host 'PASS: status distinguishes an ended session from an occupied stale endpoint'
 
   [System.IO.File]::WriteAllText((Join-Path $SkillRoot 'presets\catalog.json'), '{bad-catalog', [System.Text.Encoding]::UTF8)
   $catalogFallback = Invoke-Manager -Arguments (@('-Action', 'Status') + $common)

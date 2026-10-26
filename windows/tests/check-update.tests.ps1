@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)][string]$UpdateScript
 )
@@ -56,17 +56,17 @@ $duplicate.assets = @($release.assets) + @([pscustomobject]@{
   browser_download_url = $installerUrl
 })
 Assert-Throws { ConvertTo-DreamSkinUpdateResult -Release $duplicate -CurrentVersionText '1.6.1' } `
-  'exactly one.*installer' 'Duplicate installer assets were accepted.'
+  ('^发布文件缺失或重复：' + [regex]::Escape($installerName) + '$') 'Duplicate installer assets were accepted.'
 
 $missingChecksum = $release.PSObject.Copy()
 $missingChecksum.assets = @($release.assets[0])
 Assert-Throws { ConvertTo-DreamSkinUpdateResult -Release $missingChecksum -CurrentVersionText '1.6.1' } `
-  'exactly one.*checksum' 'A missing checksum manifest was accepted.'
+  '^发布文件缺失或重复：SHA256SUMS\.txt$' 'A missing checksum manifest was accepted.'
 
 $prerelease = $release.PSObject.Copy()
 $prerelease.prerelease = $true
 Assert-Throws { ConvertTo-DreamSkinUpdateResult -Release $prerelease -CurrentVersionText '1.6.1' } `
-  'prerelease' 'A prerelease was accepted.'
+  '^该版本为预览版，暂不作为正式更新。$' 'A prerelease was accepted.'
 
 $foreign = $release.PSObject.Copy()
 $foreign.assets = @(
@@ -74,7 +74,7 @@ $foreign.assets = @(
   $release.assets[1]
 )
 Assert-Throws { ConvertTo-DreamSkinUpdateResult -Release $foreign -CurrentVersionText '1.6.1' } `
-  'GitHub release URL' 'A foreign installer URL was accepted.'
+  ('^更新文件的下载地址与发布仓库不匹配：' + [regex]::Escape($installerName) + '$') 'A foreign installer URL was accepted.'
 
 $hash = ('ab' * 32)
 $manifest = "$hash  $installerName`n$('cd' * 32)  unrelated.zip`n"
@@ -82,10 +82,10 @@ Assert-Equal $hash (Get-DreamSkinExpectedChecksum -Manifest $manifest -AssetName
   'The exact installer checksum was not selected.'
 Assert-Throws {
   Get-DreamSkinExpectedChecksum -Manifest ($manifest + "$hash *$installerName`n") -AssetName $installerName
-} 'exactly one checksum' 'Duplicate checksum entries were accepted.'
+} ('^更新文件的校验信息缺失或重复：' + [regex]::Escape($installerName) + '$') 'Duplicate checksum entries were accepted.'
 Assert-Throws {
   Get-DreamSkinExpectedChecksum -Manifest ($manifest + "$('x' * 64)  $installerName`n") -AssetName $installerName
-} 'malformed' 'A malformed non-empty checksum line was ignored.'
+} '^发布文件校验清单的格式不正确。$' 'A malformed non-empty checksum line was ignored.'
 
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('dream-skin-update-test-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
@@ -95,7 +95,7 @@ try {
   $actualHash = (Get-FileHash -LiteralPath $fixture -Algorithm SHA256).Hash.ToLowerInvariant()
   Assert-DreamSkinInstallerChecksum -Path $fixture -ExpectedHash $actualHash
   Assert-Throws { Assert-DreamSkinInstallerChecksum -Path $fixture -ExpectedHash ('00' * 32) } `
-    'checksum.*match' 'A checksum mismatch was accepted.'
+    '^下载的安装包未通过完整性校验，请重新下载。$' 'A checksum mismatch was accepted.'
 
   $script:DreamSkinStateRoot = Join-Path $temporaryRoot 'state'
   $script:MockInstallerSource = $fixture
@@ -129,35 +129,35 @@ try {
     $script:LaunchCount = 0
     $mismatchedVersion = ConvertTo-DreamSkinUpdateResult -Release $release -CurrentVersionText '1.6.1'
     Assert-Throws { Install-DreamSkinUpdate -Result $mismatchedVersion -Expected 'v1.8.0' } `
-      'latest release changed' 'An unexpected release version reached the launch boundary.'
+      '^最新版本已从 v1\.8\.0 变为 v1\.7\.0，请重新检查更新。$' 'An unexpected release version reached the launch boundary.'
     Assert-Equal 0 $script:LaunchCount 'Version mismatch launched an installer.'
 
     $script:LaunchCount = 0
     $script:MockChecksumText = "$('00' * 32)  $installerName`n"
     $badChecksum = ConvertTo-DreamSkinUpdateResult -Release $release -CurrentVersionText '1.6.1'
     Assert-Throws { Install-DreamSkinUpdate -Result $badChecksum -Expected 'v1.7.0' } `
-      'checksum.*match' 'A mismatched downloaded installer reached the launch boundary.'
+      '^下载的安装包未通过完整性校验，请重新下载。$' 'A mismatched downloaded installer reached the launch boundary.'
     Assert-Equal 0 $script:LaunchCount 'Checksum mismatch launched an installer.'
 
     $script:LaunchCount = 0
     $script:MockChecksumText = "$('11' * 32)  unrelated.zip`n"
     $missingChecksumEntry = ConvertTo-DreamSkinUpdateResult -Release $release -CurrentVersionText '1.6.1'
     Assert-Throws { Install-DreamSkinUpdate -Result $missingChecksumEntry -Expected 'v1.7.0' } `
-      'exactly one checksum' 'A missing installer checksum reached the launch boundary.'
+      ('^更新文件的校验信息缺失或重复：' + [regex]::Escape($installerName) + '$') 'A missing installer checksum reached the launch boundary.'
     Assert-Equal 0 $script:LaunchCount 'Missing installer checksum launched an installer.'
 
     $script:LaunchCount = 0
     $script:MockChecksumText = "$actualHash  $installerName`n$actualHash *$installerName`n"
     $duplicateChecksumEntry = ConvertTo-DreamSkinUpdateResult -Release $release -CurrentVersionText '1.6.1'
     Assert-Throws { Install-DreamSkinUpdate -Result $duplicateChecksumEntry -Expected 'v1.7.0' } `
-      'exactly one checksum' 'Duplicate installer checksums reached the launch boundary.'
+      ('^更新文件的校验信息缺失或重复：' + [regex]::Escape($installerName) + '$') 'Duplicate installer checksums reached the launch boundary.'
     Assert-Equal 0 $script:LaunchCount 'Duplicate installer checksums launched an installer.'
 
     $script:LaunchCount = 0
     $script:MockChecksumText = "$actualHash  $installerName`n$('x' * 64)  $installerName`n"
     $malformedChecksumEntry = ConvertTo-DreamSkinUpdateResult -Release $release -CurrentVersionText '1.6.1'
     Assert-Throws { Install-DreamSkinUpdate -Result $malformedChecksumEntry -Expected 'v1.7.0' } `
-      'malformed' 'A malformed checksum line reached the launch boundary.'
+      '^发布文件校验清单的格式不正确。$' 'A malformed checksum line reached the launch boundary.'
     Assert-Equal 0 $script:LaunchCount 'Malformed checksum manifest launched an installer.'
   } finally {
     Set-Item -Path Function:\Invoke-DreamSkinUpdateDownload -Value $realDownload

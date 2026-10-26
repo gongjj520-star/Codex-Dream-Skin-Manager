@@ -35,6 +35,23 @@ $script:pendingAppearance = $false
 $script:pendingResolveCalls = 0
 $script:debugArguments = @()
 
+function Assert-DreamSkinStandardLaunchContext { }
+function New-DreamSkinStartupTrace { param([string]$StateRoot); return $null }
+function Write-DreamSkinStartupEvent {
+  param([object]$Trace, [string]$Stage, [hashtable]$Data, [string]$Outcome)
+}
+function Assert-DreamSkinNoReparseComponents {
+  param([string]$Path)
+  $fixtureBoundary = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'CodexDreamSkin')).TrimEnd('\') + '\'
+  if (-not [System.IO.Path]::GetFullPath($Path).StartsWith($fixtureBoundary, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Startup diagnostics attempted access outside the fixture.'
+  }
+}
+function Get-DreamSkinCodexLaunchObservation {
+  param([object]$Codex, [int]$Port, [object]$LaunchReceipt,
+    [AllowEmptyCollection()][object[]]$Processes, [object]$StartupTrace)
+  return [pscustomobject]@{ ArgumentStatus = 'forwarded' }
+}
 function Enter-DreamSkinOperationLock { param([int]$TimeoutMilliseconds); return 'mock-lock' }
 function Exit-DreamSkinOperationLock {
   param([object]$Mutex)
@@ -98,7 +115,8 @@ function Install-DreamSkinBaseTheme {
   return [pscustomobject]@{ SchemaVersion = 1 }
 }
 function Start-DreamSkinCodexForDebugging {
-  param([object]$Codex, [string[]]$Arguments, [int]$Port, [int[]]$PreserveProcessIds)
+  param([object]$Codex, [string[]]$Arguments, [int]$Port, [int[]]$PreserveProcessIds,
+    [object]$StartupTrace, [object]$LaunchReceipt)
   $script:debugArguments = @($Arguments)
   if ($script:forcedCategory) {
     throw (New-DreamSkinStartException -Category $script:forcedCategory `
@@ -138,11 +156,11 @@ try {
   $expectedProfile = [System.IO.Path]::GetFullPath((Join-Path $childStateRoot 'cdp-profile'))
   $profileArguments = @($script:debugArguments | Where-Object { $_ -like '--user-data-dir=*' })
   if ($null -eq $failure -or $failure.Exception.Message -cne 'forced CDP launch failure' -or
-    $script:installCalls -ne 1 -or ($script:events -join ',') -cne 'stop,restore,start' -or
+    $script:installCalls -ne 1 -or ($script:events -join ',') -cne 'stop,restore' -or
     -not $script:lockExited -or $profileArguments.Count -ne 1 -or
     $profileArguments[0] -cne "--user-data-dir=$expectedProfile" -or
     -not (Test-Path -LiteralPath $expectedProfile -PathType Container)) {
-    throw 'A failed CDP launch did not close Codex, restore appearance, then reopen normally.'
+    throw 'A failed CDP launch did not close this attempt and restore appearance without a second start.'
   }
 
   foreach ($category in @('cdp-direct-access-denied', 'cdp-endpoint-unavailable')) {
@@ -161,7 +179,7 @@ try {
       "$($childResult.outcome)" -cne 'failure' -or
       "$($childResult.category)" -cne $category -or
       "$($childResult.appearanceRecovery)" -cne 'restored' -or
-      $script:installCalls -ne 1 -or ($script:events -join ',') -cne 'stop,restore,start' -or
+      $script:installCalls -ne 1 -or ($script:events -join ',') -cne 'stop,restore' -or
       -not $script:lockExited) {
       throw "The outer child-result contract lost categorized failure '$category'."
     }

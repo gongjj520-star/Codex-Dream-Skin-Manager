@@ -93,9 +93,9 @@ try {
   }
   Remove-Item -LiteralPath $oversizedPath -Force
 
-  # Exercise the real launch helper and result-category resolver together. A
-  # package protocol redirect must not collapse either direct-fallback failure
-  # into the generic category used before the helper knew the precise cause.
+  # Exercise the direct-first helper and bounded failure resolver together.
+  # Package activation is permitted only after direct creation is denied; it
+  # must not replace a direct session whose arguments cannot establish CDP.
   $launcherFunctionNames = @(
     'Start-DreamSkinCodex',
     'Wait-DreamSkinCodexDebugArgumentStatus',
@@ -110,16 +110,23 @@ try {
   }
   $fakeCodex = [pscustomobject]@{ Version = '26.803.5235.0' }
   try {
-    Set-Item 'function:Start-DreamSkinCodex' -Value { return 101 }
+    $script:startResultPackageCalls = 0
+    Set-Item 'function:Start-DreamSkinCodex' -Value {
+      param($Codex, $Arguments)
+      $script:startResultPackageCalls++
+      return 101
+    }
     Set-Item 'function:Stop-DreamSkinCodex' -Value {
       param($Codex, [int[]]$PreserveProcessIds, [switch]$AllowForce)
+      throw 'The category fixture must never close a real or simulated session to retry startup.'
     }
     Set-Item 'function:Get-DreamSkinCodexProcesses' -Value { return @() }
-    Set-Item 'function:Start-DreamSkinCodexDirect' -Value { return 202 }
-    $script:startResultStatusCall = 0
+    Set-Item 'function:Start-DreamSkinCodexDirect' -Value {
+      param($Codex, $Arguments, $LaunchReceipt)
+      return 202
+    }
     Set-Item 'function:Wait-DreamSkinCodexDebugArgumentStatus' -Value {
-      $script:startResultStatusCall += 1
-      if ($script:startResultStatusCall -eq 1) { return 'protocol-redirected' }
+      param($Codex, $Port, $LaunchReceipt, $StartupTrace)
       return 'not-forwarded'
     }
     $notForwardedCategory = $null
@@ -129,15 +136,29 @@ try {
     } catch {
       $notForwardedCategory = Get-DreamSkinStartFailureCategory -Exception $_.Exception
     }
-    if ($notForwardedCategory -cne 'cdp-endpoint-unavailable') {
-      throw 'A direct launch that dropped the CDP argument lost its bounded result category.'
+    if ($notForwardedCategory -cne 'cdp-endpoint-unavailable' -or $script:startResultPackageCalls -ne 0) {
+      throw 'A direct launch that dropped the CDP argument lost its category or started a second session.'
     }
 
-    Set-Item 'function:Wait-DreamSkinCodexDebugArgumentStatus' -Value {
-      return 'protocol-redirected'
-    }
     Set-Item 'function:Start-DreamSkinCodexDirect' -Value {
-      throw [System.UnauthorizedAccessException]::new('denied')
+      param($Codex, $Arguments, $LaunchReceipt)
+      throw [System.UnauthorizedAccessException]::new('denied before process creation')
+    }
+    $activationArgumentCategory = $null
+    try {
+      $null = Start-DreamSkinCodexForDebugging -Codex $fakeCodex `
+        -Arguments @('--remote-debugging-port=9335') -Port 9335 -PreserveProcessIds @()
+    } catch {
+      $activationArgumentCategory = Get-DreamSkinStartFailureCategory -Exception $_.Exception
+    }
+    if ($activationArgumentCategory -cne 'cdp-endpoint-unavailable' -or $script:startResultPackageCalls -ne 1) {
+      throw 'Package activation that dropped CDP arguments was incorrectly reported as a direct access-denied failure.'
+    }
+
+    Set-Item 'function:Start-DreamSkinCodex' -Value {
+      param($Codex, $Arguments)
+      $script:startResultPackageCalls++
+      throw [System.InvalidOperationException]::new('fixture package activation failure')
     }
     $accessDeniedCategory = $null
     try {
@@ -146,14 +167,14 @@ try {
     } catch {
       $accessDeniedCategory = Get-DreamSkinStartFailureCategory -Exception $_.Exception
     }
-    if ($accessDeniedCategory -cne 'cdp-direct-access-denied') {
-      throw 'A blocked direct Store launch lost its bounded result category.'
+    if ($accessDeniedCategory -cne 'cdp-direct-access-denied' -or $script:startResultPackageCalls -ne 2) {
+      throw 'Direct creation denial followed by activation failure lost its bounded result category.'
     }
   } finally {
     foreach ($functionName in $launcherFunctionNames) {
       Set-Item ("function:$functionName") -Value $originalLauncherFunctions[$functionName]
     }
-    Remove-Variable -Name startResultStatusCall -Scope Script -ErrorAction SilentlyContinue
+    Remove-Variable -Name startResultPackageCalls -Scope Script -ErrorAction SilentlyContinue
   }
 
   $startSource = [System.IO.File]::ReadAllText((Join-Path $Root 'scripts\start-dream-skin.ps1'))

@@ -11,6 +11,7 @@ param([Parameter(Mandatory = $true)][string]$Root)
 # must still restart it when the renderer reports a genuinely broken session.
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $Root 'scripts\common-windows.ps1')
 . (Join-Path $Root 'scripts\localization-windows.ps1')
 $startPath = Join-Path $Root 'scripts\start-dream-skin.ps1'
 $rawSource = [System.IO.File]::ReadAllText($startPath)
@@ -33,7 +34,8 @@ $rawSource = $rawSource.Replace(
   '$animationScript = Join-Path $PSScriptRoot ''play-startup-animation.mjs''',
   '$animationScript = Join-Path $StateRoot (''fixture-animation-disabled-'' + [guid]::NewGuid().ToString(''N'') + ''.mjs'')'
 )
-if ($rawSource.Contains('$PSScriptRoot')) {
+$rawSource = $rawSource.Replace('$ConfigPath = Join-Path $HOME ''.codex\config.toml''', '$ConfigPath = Join-Path $StateRoot ''fixture-config.toml''')
+if ($rawSource.Contains('$PSScriptRoot') -or $rawSource.Contains('$HOME')) {
   throw 'Preserved-skin fixture left a real script-root dependency in the isolated source.'
 }
 
@@ -64,6 +66,23 @@ function Invoke-DreamSkinStartupFixture {
   $script:lastError = '(no error)'
   $script:resultAppearanceRecovery = $null
 
+  function Assert-DreamSkinStandardLaunchContext { }
+  function New-DreamSkinStartupTrace { param([string]$StateRoot); return $null }
+  function Write-DreamSkinStartupEvent {
+    param([object]$Trace, [string]$Stage, [hashtable]$Data, [string]$Outcome)
+  }
+  function Assert-DreamSkinNoReparseComponents {
+    param([string]$Path)
+    $fixtureBoundary = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'CodexDreamSkin')).TrimEnd('\') + '\'
+    if (-not [System.IO.Path]::GetFullPath($Path).StartsWith($fixtureBoundary, [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'Startup diagnostics attempted access outside the fixture.'
+    }
+  }
+  function Get-DreamSkinCodexLaunchObservation {
+    param([object]$Codex, [int]$Port, [object]$LaunchReceipt,
+      [AllowEmptyCollection()][object[]]$Processes, [object]$StartupTrace)
+    return [pscustomobject]@{ ArgumentStatus = 'forwarded' }
+  }
   function Enter-DreamSkinOperationLock { param([int]$TimeoutMilliseconds); return 'mock-lock' }
   function Exit-DreamSkinOperationLock { param([object]$Mutex) }
   function Assert-DreamSkinPort { param([int]$Port) }
@@ -136,7 +155,8 @@ function Invoke-DreamSkinStartupFixture {
   }
   function Complete-DreamSkinAppearanceTransaction { param([string]$BackupPath, [object]$Transaction) }
   function Start-DreamSkinCodexForDebugging {
-    param([object]$Codex, [string[]]$Arguments, [int]$Port, [int[]]$PreserveProcessIds)
+    param([object]$Codex, [string[]]$Arguments, [int]$Port, [int[]]$PreserveProcessIds,
+      [object]$StartupTrace, [object]$LaunchReceipt)
     $script:cdpReady = $true
     $script:codexProcessRunning = $true
     return [pscustomobject]@{ Strategy = 'package-activation' }
@@ -299,14 +319,14 @@ $communityRendered = Invoke-DreamSkinStartupFixture `
   -VerifyPayloads @($renderedPayload, $malformedPayload) -OncePayload $malformedPayload `
   -WithResultToken
 if (-not $communityRendered.Failed -or -not $communityRendered.CodexStopped -or
-  -not $communityRendered.CodexStarted -or $communityRendered.AppearanceRestoreCalls -ne 1 -or
+  $communityRendered.CodexStarted -or $communityRendered.AppearanceRestoreCalls -ne 1 -or
   "$($communityRendered.ResultAppearanceRecovery)" -cne 'restored') {
   throw 'A one-click rendered-but-unverified session was not closed and appearance-restored before parent rollback.'
 }
 
 $broken = Invoke-DreamSkinStartupFixture `
   -VerifyPayloads @($hiddenPayload, $malformedPayload) -OncePayload $hiddenPayload
-if (-not $broken.Failed -or -not $broken.CodexStopped -or -not $broken.CodexStarted -or
+if (-not $broken.Failed -or -not $broken.CodexStopped -or $broken.CodexStarted -or
   $broken.AppearanceRestoreCalls -ne 1) {
   throw 'A genuinely hidden renderer no longer closes Codex and restores appearance.'
 }

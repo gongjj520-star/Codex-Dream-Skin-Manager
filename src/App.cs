@@ -11,10 +11,21 @@ namespace CodexDreamSkinManager
         private const string InstanceName = "Local\\CodexDreamSkinManager-1.1";
 
         [STAThread]
-        private static void Main()
+        private static void Main(string[] arguments)
         {
             Thread.CurrentThread.CurrentUICulture = System.Globalization.CultureInfo.GetCultureInfo("zh-CN");
-            using (SingleInstanceGuard guard = SingleInstanceGuard.TryAcquire(InstanceName))
+            // Store apps inherit an elevated launch context and can exit before
+            // CDP starts. Normalize before the mutex, service, or any config write.
+            if (!ManagerLaunchContext.EnsureStandardLaunch(arguments)) return;
+            SingleInstanceGuard acquiredGuard;
+            try { acquiredGuard = SingleInstanceGuard.TryAcquire(InstanceName); }
+            catch (UnauthorizedAccessException)
+            {
+                MessageBox.Show("旧的管理员权限管理器仍在运行，请先关闭它，再正常打开管理器。当前 Codex 窗口保持不动。",
+                    UserMessages.AppTitle, MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            using (SingleInstanceGuard guard = acquiredGuard)
             {
                 if (guard == null)
                 {

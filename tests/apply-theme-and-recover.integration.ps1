@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param([Parameter(Mandatory = $true)][string]$RecoveryScript)
 
 $ErrorActionPreference = 'Stop'
@@ -73,6 +73,8 @@ try {
   Write-Utf8 $imagePath 'fixture-image'
 
   Write-Utf8 (Join-Path $scripts 'common-windows.ps1') @'
+# This isolated recovery fixture never launches a real Store application.
+function Assert-DreamSkinStandardLaunchContext { }
 function Get-DreamSkinThemePaths {
   param([string]$StateRoot)
   [pscustomobject]@{ Root = $StateRoot; State = (Join-Path $StateRoot 'state.json') }
@@ -149,7 +151,7 @@ param([string]$Action,[string]$SkillRoot,[string]$StateRoot,[string]$ThemeDirect
   [string]$Name,[string]$Appearance,[double]$FocusX,[double]$FocusY,
   [double]$PositionX,[double]$PositionY,[double]$Zoom,[string]$PositionMode,[string]$FramingEnabled,
   [string]$SafeArea,[string]$TaskMode,[string]$Accent,[string]$ThemeId,[string]$Category,[string]$TagsJson,
-  [double]$BubbleOpacity,[double]$SurfaceOpacity,[switch]$DeferLiveApply)
+  [double]$BubbleOpacity,[double]$SurfaceOpacity,[switch]$DeferLiveApply,[switch]$Quick)
 if ($Action -eq 'Status') {
   [ordered]@{ statusKind = (Get-Content -LiteralPath $env:RECOVERY_TEST_KIND -Raw).Trim() } | ConvertTo-Json
 } elseif ($Action -eq 'ApplyTheme') {

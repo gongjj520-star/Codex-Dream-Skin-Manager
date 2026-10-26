@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param([Parameter(Mandatory = $true)][string]$Root)
 
 $ErrorActionPreference = 'Stop'
@@ -229,9 +229,9 @@ Invoke-Expression $successMessageHelperAst.Extent.Text
 $dreamSkinLanguage = 'en-US'
 $successMessage = Format-DreamSkinCommunitySuccessMessage -Name 'Paper'
 if (-not $successMessage -or $successMessage -notmatch 'Paper' -or
-  $successMessage -notmatch 'SHA-256' -or $successMessage -notmatch 'Safe CSS' -or
+  $successMessage -notmatch '文件完整性' -or $successMessage -notmatch '样式安全' -or
   $successMessage -notmatch 'Codex') {
-  throw 'The Windows PowerShell 5.1 community success message is empty or malformed.'
+  throw 'The fixed-Chinese community success message lost the theme name, integrity or style safety information.'
 }
 $cleanupWarningMessage = Format-DreamSkinCommunitySuccessMessage -Name 'Paper' `
   -CleanupWarning 'simulated private path that must not be shown'
@@ -242,9 +242,9 @@ if ($cleanupWarningMessage.Length -le $successMessage.Length -or
 $dreamSkinLanguage = 'zh-CN'
 $chineseSuccessMessage = Format-DreamSkinCommunitySuccessMessage -Name 'Paper'
 if (-not $chineseSuccessMessage -or $chineseSuccessMessage -notmatch 'Paper' -or
-  $chineseSuccessMessage -notmatch 'SHA-256' -or $chineseSuccessMessage -notmatch 'Safe CSS' -or
-  $chineseSuccessMessage -notmatch 'Codex' -or $chineseSuccessMessage -ceq $successMessage) {
-  throw 'The localized community success message is empty, malformed, or not language-specific.'
+  $chineseSuccessMessage -notmatch '文件完整性' -or $chineseSuccessMessage -notmatch '样式安全' -or
+  $chineseSuccessMessage -notmatch 'Codex' -or $chineseSuccessMessage -cne $successMessage) {
+  throw 'Community success text changed this distribution''s fixed-Chinese policy or lost integrity and style safety information.'
 }
 $request = New-DreamSkinCommunityHttpRequest `
   -RequestUri 'https://api.dreamskin.cc/v1/themes/ver_1234abcd' -Accept 'application/json'
