@@ -1,0 +1,164 @@
+name: Release fallback
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Stable release tag to publish
+        required: true
+        type: string
+      release_commit:
+        description: Full immutable commit of the release tag
+        required: true
+        type: string
+      source_run_id:
+        description: Original Release run containing successful Windows and Intel artifacts
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-fallback-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  arm64:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out immutable release source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.release_commit }}
+          fetch-depth: 0
+
+      - name: Verify tag, version and native ARM runner
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+          test "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "$RELEASE_COMMIT"
+          test "$(tr -d '[:space:]' < macos/VERSION)" = "${RELEASE_TAG#v}"
+          test "$(uname -m)" = arm64
+          test -f ".github/release-notes/${RELEASE_TAG}.md"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.2
+
+      - name: Check synchronized runtime assets
+        run: node tools/sync-runtime-assets.mjs --check
+
+      - name: Test and build native ARM64 DMG
+        env:
+          CODEX_DREAM_SKIN_SKIP_SIGNED_RUNTIME_TESTS: "1"
+          CODEX_DREAM_SKIN_SKIP_DOCTOR: "1"
+          DREAMSKIN_ARCHS: arm64
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          NODE="$(command -v node)" bash macos/scripts/build-dmg.sh
+          mv "macos/release/CodexDreamSkin-${RELEASE_TAG}.dmg" \
+            "macos/release/CodexDreamSkinManager-${RELEASE_TAG}-macos-arm64.dmg"
+
+      - name: Upload ARM64 release asset
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-macos-arm64
+          path: macos/release/*-macos-arm64.dmg
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out immutable release notes and tools
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.release_commit }}
+          fetch-depth: 0
+
+      - name: Verify original release build provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+          test "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "$RELEASE_COMMIT"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq .head_sha)" = "$RELEASE_COMMIT"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq .path)" = .github/workflows/release.yml
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100")"
+          test "$(jq '[.jobs[] | select(.name == "windows" and .conclusion == "success")] | length' <<< "$jobs")" = 1
+          test "$(jq '[.jobs[] | select(.name == "macos (x64, x86_64, macos-15-intel)" and .conclusion == "success")] | length' <<< "$jobs")" = 1
+
+      - name: Download verified Windows release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-windows
+          path: dist
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download verified Intel release asset
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-macos-x64
+          path: dist
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download native ARM64 release asset
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-macos-arm64
+          path: dist
+
+      - name: Create and verify public manifests
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          expected=(
+            "CodexDreamSkinManager-${RELEASE_TAG}-windows-x64-setup.exe"
+            "CodexDreamSkinManager-${RELEASE_TAG}-windows-x64-portable.zip"
+            "CodexDreamSkinManager-${RELEASE_TAG}-macos-x64.dmg"
+            "CodexDreamSkinManager-${RELEASE_TAG}-macos-arm64.dmg"
+          )
+          cd dist
+          diff -u <(printf '%s\n' "${expected[@]}" | LC_ALL=C sort) \
+            <(find . -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
+          sha256sum "${expected[@]}" | LC_ALL=C sort -k2 > SHA256SUMS.txt
+          cd ..
+          python3 tools/create-update-manifest.py --tag "$RELEASE_TAG" --directory dist
+
+      - name: Publish verified release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(find dist -maxdepth 1 -type f -printf '%p\n' | LC_ALL=C sort)
+          test "${#assets[@]}" = 6
+          gh release create "$RELEASE_TAG" "${assets[@]}" --verify-tag --latest \
+            --title "Codex Dream Skin Manager ${RELEASE_TAG}" \
+            --notes-file ".github/release-notes/${RELEASE_TAG}.md" \
+            --repo "$GITHUB_REPOSITORY"
