@@ -1003,14 +1003,15 @@
     // not an adjustable panel. Keep the exact utility signature narrow so
     // dialogs, menus and other aria-hidden transitions remain independent.
     // 26.1013 moves the offset into CSS Modules and makes the surface a direct
-    // footer child; the old -top-8 marker is no longer present on that node.
+    // footer child. 26.1023 also moves inset-x-0 into its background module;
+    // identify that surface by its footer parent, not a positioning utility.
     const isComposerDecoration = (node) => {
       if (!node || node.getAttribute?.("role") ||
         node.closest?.('[role="dialog"], [role="menu"], [role="tooltip"]')) return false;
       if (!node.matches?.(
-        '[class~="pointer-events-none"][class~="absolute"][class~="inset-x-0"]',
+        '[class~="pointer-events-none"][class~="absolute"]',
       )) return false;
-      const legacyOffset = node.matches?.('[class~="-top-8"]');
+      const legacyOffset = node.matches?.('[class~="inset-x-0"][class~="-top-8"]');
       const footerSurface = node.matches?.(
         '[aria-hidden="true"][class~="z-0"][class~="bottom-0"][class~="bg-surface"]',
       ) && node.parentElement?.matches?.('[data-thread-scroll-footer]');
